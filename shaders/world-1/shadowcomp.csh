@@ -436,6 +436,7 @@ void main() {
 		return;
 	}
 	uint activeIndex = atomicAdd(ircActiveCount, 1u);
+	if (activeIndex >= FOXY_IRC_COUNT) return;
 	ircActiveCells[activeIndex] = IrcIndex(cacheCell);
 	return;
 
