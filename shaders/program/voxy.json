@@ -1,0 +1,41 @@
+#include "/lib/temporal_options.glsl"
+
+{
+    "version": 1,
+    "excludeLodsFromVanillaDepth": true,
+    "opaqueDrawBuffers": [0, 2],
+    "translucentDrawBuffers": [0, 2, 13],
+    "blending": {
+        -1: "off",
+        0: "SRC_ALPHA ONE_MINUS_SRC_ALPHA ZERO ONE"
+    },
+#if FOXY_TEMPORAL_JITTER_ACTIVE == 1
+    "taaOffset": "{ return taa_offset; }",
+    "useViewportDims": true,
+#endif
+#if FOXY_TAAU_ACTIVE == 1
+    "renderScale": [FOXY_TAAU_RENDER_SCALE, FOXY_TAAU_RENDER_SCALE],
+#endif
+    "uniforms": [
+        "gbufferModelView",
+        "gbufferModelViewInverse",
+        "gbufferProjectionInverse",
+        "cameraPosition",
+        "near",
+        "far",
+        "rainStrength",
+        "frameTimeCounter",
+        "frameCounter",
+        "moonPhase",
+        "light_dir",
+        "sun_dir",
+        "moon_dir",
+        "view_pixel_size",
+        "taa_offset"
+    ],
+    "samplers": [
+        "noisetex",
+        "waterCausticV5Atlas",
+        "colortex7"
+    ]
+}

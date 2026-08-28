@@ -1,0 +1,18 @@
+Foxy Shaderpack
+Copyright (C) 2026 ENXV233.
+
+All rights reserved.
+
+The original shader code, configuration, documentation, and original assets
+in this shaderpack are proprietary and are provided only for personal use with
+the unmodified Foxy Shaderpack. No permission is granted to copy, modify,
+adapt, translate, reverse engineer, redistribute, rehost, sublicense, sell,
+bundle, or publish this shaderpack or any substantial portion of it without
+prior written permission from the copyright holder.
+
+The shaderpack may not be included in another pack, launcher, modpack,
+download mirror, or other redistributed collection without prior written
+permission. Derivative works and modified redistributions are not authorized.
+
+Third-party works listed in THIRD_PARTY_NOTICES.txt remain governed by their
+respective licenses. This notice does not change those licenses.
