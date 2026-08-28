@@ -440,7 +440,7 @@ vec3 IrcTraceSample(
 }
 
 void main() {
-	uint activeIndex = gl_GlobalInvocationID.x;
+	uint activeIndex = 1048576u + gl_GlobalInvocationID.x;
 	if (activeIndex >= ircActiveCount) return;
 	uint linearCell = ircActiveCells[activeIndex];
 	ivec3 cacheCell = ivec3(

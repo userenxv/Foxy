@@ -1,6 +1,5 @@
 #version 430
 
-#define FOXY_DIM_END
 #define FOXY_SSPT_TRACE_LIBRARY_ONLY
 #include "/program/sspt_trace.csh"
 
@@ -200,9 +199,6 @@ bool IrcProbeHasSurfaceSupport(const in ivec3 cell) {
 }
 
 float IrcProbeSkyVisibility(const in ivec3 cell) {
-	#if defined(FOXY_DIM_END)
-		return 1.0;
-	#endif
 	const ivec3 offsets[7] = ivec3[7](
 		ivec3(0, 0, 0),
 		ivec3(-1, 0, 0), ivec3(1, 0, 0),
@@ -271,7 +267,10 @@ float IrcDirectVisibility(
 		0.018,
 		0.180
 	);
-	vec3 scenePosition = gridPosition - fract(cameraPosition) -
+	// Keep IRC's solar receiver on the represented voxel face, not a DDA seam.
+	vec3 faceCenter = floor(gridPosition - hitNormal * 1.0e-4) +
+		vec3(0.5) + hitNormal * 0.5;
+	vec3 scenePosition = faceCenter - fract(cameraPosition) -
 		vec3(FOXY_VOXEL_GRID_HALF_SIZE);
 	vec4 shadowClip = shadowProjection * shadowModelView *
 		vec4(scenePosition + hitNormal * normalOffset, 1.0);
@@ -301,18 +300,11 @@ vec3 IrcNeutralSkyMeanRadiance() {
 	vec3 skyMeanRadiance = max(skyUpperHemisphereFluence, vec3(0.0)) /
 		(2.0 * PI);
 	float skyMeanLuminance = dot(skyMeanRadiance, vec3(0.2126, 0.7152, 0.0722));
-	vec3 neutralRadiance = mix(
+	return mix(
 		skyMeanRadiance,
 		vec3(skyMeanLuminance),
 		Saturate(FOXY_SKY_AMBIENT_NEUTRALITY)
 	) * FOXY_SKY_AMBIENT_LIFT;
-	#if defined(FOXY_DIM_END)
-		neutralRadiance = max(
-			neutralRadiance,
-			EndEnvironmentFluence() * 0.5
-		);
-	#endif
-	return neutralRadiance;
 }
 
 vec3 IrcTraceSample(
@@ -383,32 +375,23 @@ vec3 IrcTraceSample(
 		mat3(gbufferModelViewInverse) * directLightView
 	);
 	float directLightAltitude = dot(directLightView, unitUpView);
-	#if defined(FOXY_DIM_END)
-		directLightWorldDirection = EndSunWorldDirection();
-		directLightAltitude = 0.86602540;
-	#endif
 	float directLightCosine = max(
 		dot(hitNormal, directLightWorldDirection),
 		0.0
 	);
-	#if defined(FOXY_DIM_END)
-		float directLightVisibility = directLightCosine > 0.001 ? 1.0 : 0.0;
-		vec3 directLightRadiance = vec3(0.62, 0.72, 1.00);
-	#else
-		bool directLightCandidate = directLightAltitude > 0.001 &&
-			directLightCosine > 0.001 && skyLight >= (0.5 / 15.0);
-		float directLightVisibility = directLightCandidate
-			? IrcDirectVisibility(hitPosition, hitNormal, directLightCosine)
-			: 0.0;
-		vec3 directLightRadiance = vec3(0.0);
-		if (directLightVisibility > 0.0) {
-			directLightRadiance = DecodeBufferColor(texelFetch(
-				colortex7,
-				SkyDirectSunColorTexel(),
-				0
-			).rgb);
-		}
-	#endif
+	bool directLightCandidate = directLightAltitude > 0.001 &&
+		directLightCosine > 0.001 && skyLight >= (0.5 / 15.0);
+	float directLightVisibility = directLightCandidate
+		? IrcDirectVisibility(hitPosition, hitNormal, directLightCosine)
+		: 0.0;
+	vec3 directLightRadiance = vec3(0.0);
+	if (directLightVisibility > 0.0) {
+		directLightRadiance = DecodeBufferColor(texelFetch(
+			colortex7,
+			SkyDirectSunColorTexel(),
+			0
+		).rgb);
+	}
 	vec3 hitRadiance = VoxelGiHitRadiance(
 		hitPayload,
 		surfaceAlbedo,
@@ -440,7 +423,7 @@ vec3 IrcTraceSample(
 }
 
 void main() {
-	uint activeIndex = gl_GlobalInvocationID.x;
+	uint activeIndex = 1048576u + gl_GlobalInvocationID.x;
 	if (activeIndex >= ircActiveCount) return;
 	uint linearCell = ircActiveCells[activeIndex];
 	ivec3 cacheCell = ivec3(

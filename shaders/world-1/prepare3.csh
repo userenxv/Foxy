@@ -1,6 +1,6 @@
 #version 430
 
-#define FOXY_DIM_END
+#define FOXY_DIM_NETHER
 #define FOXY_SSPT_TRACE_LIBRARY_ONLY
 #include "/program/sspt_trace.csh"
 
@@ -200,7 +200,7 @@ bool IrcProbeHasSurfaceSupport(const in ivec3 cell) {
 }
 
 float IrcProbeSkyVisibility(const in ivec3 cell) {
-	#if defined(FOXY_DIM_END)
+	#if defined(FOXY_DIM_NETHER)
 		return 1.0;
 	#endif
 	const ivec3 offsets[7] = ivec3[7](
@@ -306,10 +306,10 @@ vec3 IrcNeutralSkyMeanRadiance() {
 		vec3(skyMeanLuminance),
 		Saturate(FOXY_SKY_AMBIENT_NEUTRALITY)
 	) * FOXY_SKY_AMBIENT_LIFT;
-	#if defined(FOXY_DIM_END)
+	#if defined(FOXY_DIM_NETHER)
 		neutralRadiance = max(
 			neutralRadiance,
-			EndEnvironmentFluence() * 0.5
+			NetherEnvironmentFluence()
 		);
 	#endif
 	return neutralRadiance;
@@ -344,31 +344,42 @@ vec3 IrcTraceSample(
 	);
 	vec3 sampleRadiance = sphereRadiance *
 		FOXY_IRRADIANCE_CACHE_BLOCK_BRIGHTNESS;
-	bool environmentTerminal =
-		traceResult == FOXY_VOXEL_GI_TRACE_DOMAIN_EXIT ||
-		traceResult == FOXY_VOXEL_GI_TRACE_DISTANCE_LIMIT;
-	if (environmentTerminal) {
-		rayDistance = traceResult == FOXY_VOXEL_GI_TRACE_DOMAIN_EXIT
-			? hitDistance
-			: FOXY_IRC_TRACE_DISTANCE;
-		float skyWeight = Saturate(rayDirection.y * 25.0 + 0.5) *
-			probeSkyVisibility;
-		directRadiance = sampleRadiance;
-		if (skyWeight > 0.0) {
-			vec3 skyRadiance = DecodeBufferColor(texture2D(
-				colortex7,
-				SsptSkyLutUv(rayDirection)
-			).rgb) * FOXY_VOXEL_GI_SKY_BRIGHTNESS *
+	if (traceResult == FOXY_VOXEL_GI_TRACE_DOMAIN_EXIT) {
+		rayDistance = hitDistance;
+		#if defined(FOXY_DIM_NETHER)
+			directRadiance = sampleRadiance + rayTransmittance *
+				neutralSkyMeanRadiance * probeSkyVisibility *
+				FOXY_VOXEL_GI_SKY_BRIGHTNESS *
 				FOXY_IRRADIANCE_CACHE_SKY_BRIGHTNESS;
-			directRadiance += rayTransmittance *
-				max(skyRadiance, vec3(0.0)) * skyWeight;
+			return directRadiance;
+		#endif
+		float topExit = step(
+			float(VOXEL_GRID_SIZE) - 1.0e-3,
+			probePosition.y + rayDirection.y * hitDistance
+		);
+		if (topExit <= 0.0) {
+			directRadiance = sampleRadiance;
+			return directRadiance;
 		}
+		vec3 skyRadiance = DecodeBufferColor(texture2D(
+			colortex7,
+			SsptSkyLutUv(rayDirection)
+		).rgb) * FOXY_VOXEL_GI_SKY_BRIGHTNESS *
+			FOXY_IRRADIANCE_CACHE_SKY_BRIGHTNESS;
+		directRadiance = sampleRadiance + rayTransmittance *
+			max(skyRadiance, vec3(0.0)) * probeSkyVisibility;
 		return directRadiance;
 	}
 	if (traceResult != FOXY_VOXEL_GI_TRACE_SURFACE_HIT) {
 		rayDistance = FOXY_IRC_TRACE_DISTANCE;
-		// Trace-budget exhaustion is not an environment escape.
-		directRadiance = sampleRadiance;
+		float skyHemisphere = Saturate(rayDirection.y * 25.0 + 0.5);
+		#if defined(FOXY_DIM_NETHER)
+			skyHemisphere = 1.0;
+		#endif
+		directRadiance = sampleRadiance + rayTransmittance *
+			neutralSkyMeanRadiance * skyHemisphere * probeSkyVisibility *
+			FOXY_VOXEL_GI_SKY_BRIGHTNESS *
+			FOXY_IRRADIANCE_CACHE_SKY_BRIGHTNESS;
 		return directRadiance;
 	}
 
@@ -383,32 +394,23 @@ vec3 IrcTraceSample(
 		mat3(gbufferModelViewInverse) * directLightView
 	);
 	float directLightAltitude = dot(directLightView, unitUpView);
-	#if defined(FOXY_DIM_END)
-		directLightWorldDirection = EndSunWorldDirection();
-		directLightAltitude = 0.86602540;
-	#endif
 	float directLightCosine = max(
 		dot(hitNormal, directLightWorldDirection),
 		0.0
 	);
-	#if defined(FOXY_DIM_END)
-		float directLightVisibility = directLightCosine > 0.001 ? 1.0 : 0.0;
-		vec3 directLightRadiance = vec3(0.62, 0.72, 1.00);
-	#else
-		bool directLightCandidate = directLightAltitude > 0.001 &&
-			directLightCosine > 0.001 && skyLight >= (0.5 / 15.0);
-		float directLightVisibility = directLightCandidate
-			? IrcDirectVisibility(hitPosition, hitNormal, directLightCosine)
-			: 0.0;
-		vec3 directLightRadiance = vec3(0.0);
-		if (directLightVisibility > 0.0) {
-			directLightRadiance = DecodeBufferColor(texelFetch(
-				colortex7,
-				SkyDirectSunColorTexel(),
-				0
-			).rgb);
-		}
-	#endif
+	float directLightVisibility = directLightAltitude > 0.001 &&
+		directLightCosine > 0.001
+		? IrcDirectVisibility(
+			hitPosition,
+			hitNormal,
+			directLightCosine
+		)
+		: 0.0;
+	vec3 directLightRadiance = DecodeBufferColor(texelFetch(
+		colortex7,
+		SkyDirectSunColorTexel(),
+		0
+	).rgb);
 	vec3 hitRadiance = VoxelGiHitRadiance(
 		hitPayload,
 		surfaceAlbedo,
@@ -440,7 +442,7 @@ vec3 IrcTraceSample(
 }
 
 void main() {
-	uint activeIndex = gl_GlobalInvocationID.x;
+	uint activeIndex = 1048576u + gl_GlobalInvocationID.x;
 	if (activeIndex >= ircActiveCount) return;
 	uint linearCell = ircActiveCells[activeIndex];
 	ivec3 cacheCell = ivec3(
