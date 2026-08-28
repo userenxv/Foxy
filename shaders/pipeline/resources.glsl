@@ -1,8 +1,7 @@
 #ifndef PIPELINE_RESOURCES_GLSL
 #define PIPELINE_RESOURCES_GLSL
 
-// Existing colortex ownership. Keep this list synchronized with
-// docs/refactor/RESOURCE_MAP.md before changing shaders.properties.
+// Existing colortex ownership used by the pipeline.
 #define FOXY_BUFFER_SCENE_COLOR 0
 #define FOXY_BUFFER_CLOUD_SOURCE 1
 #define FOXY_BUFFER_GBUFFER_DATA 2
