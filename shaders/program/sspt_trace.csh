@@ -715,7 +715,7 @@ int VoxelGiTrace(
 					payload
 				);
 				bool analyticShape = shapeDescriptor >= 0;
-				bool paneShape = TransmissionIsPane(materialId);
+				bool paneShape = TransmissionIsPaneUint(materialId);
 				float cellSegmentStart = traveled;
 				float shapeHitDistance = cellSegmentStart;
 				vec3 shapeHitNormal = cellEntryNormal;

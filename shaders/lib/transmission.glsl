@@ -38,7 +38,7 @@ bool TransmissionIsPane(const in float materialId) {
 	return canonicalId >= 10600.0 && canonicalId <= 10871.0;
 }
 
-bool TransmissionIsPane(const in uint materialId) {
+bool TransmissionIsPaneUint(const in uint materialId) {
 	return materialId >= 10600u && materialId <= 10871u;
 }
 
