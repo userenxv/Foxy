@@ -28,7 +28,7 @@ bool TransmissionIsGlass(const in float materialId) {
 		(canonicalId >= 10600.0 && canonicalId <= 10871.0);
 }
 
-bool TransmissionIsGlass(const in uint materialId) {
+bool TransmissionIsGlassUint(const in uint materialId) {
 	return (materialId >= 10300u && materialId <= 10316u) ||
 		(materialId >= 10600u && materialId <= 10871u);
 }

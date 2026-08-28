@@ -145,7 +145,7 @@ bool VoxelGridOccupied(const in uint payload) {
 // is transparent to the IRC surface-topology classifier.
 bool VoxelGridTopologyOccupied(const in uint payload) {
 	return VoxelGridOccupied(payload) &&
-		!TransmissionIsGlass(payload & VOXEL_MATERIAL_MASK);
+		!TransmissionIsGlassUint(payload & VOXEL_MATERIAL_MASK);
 }
 
 bool VoxelThinPlantMaterial(const in uint materialId) {
