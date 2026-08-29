@@ -1,12 +1,8 @@
 #version 430
 
-#define FOXY_SSPT_TRACE_LIBRARY_ONLY
-#include "/program/sspt_trace.csh"
+#include "/lib/voxel/irc_active_contract.glsl"
 
 #if FOXY_IRRADIANCE_CACHE_ACTIVE == 1
-
-#include "/lib/celestial.glsl"
-#include "/lib/shadow.glsl"
 
 layout(std430, binding = 3) coherent buffer IrradianceFeedback {
 	uint ircActiveCount;
@@ -102,6 +98,7 @@ bool IrcSharedProbeHasSurfaceSupport(const in ivec3 tileCell) {
 	return (ircSupportRows[rowIndex] & (1u << uint(tileCell.x))) != 0u;
 }
 
+#if 0
 uint IrcHash(uint value) {
 	value ^= value >> 16u;
 	value *= 0x7feb352du;
@@ -422,14 +419,14 @@ vec3 IrcTraceSample(
 	#endif
 }
 
+#endif
+
 void main() {
 	IrcLoadSupportTile();
 	ivec3 cacheCell = ivec3(gl_GlobalInvocationID.xyz) +
 		FOXY_IRC_GRID_OFFSET;
 	if (!IrcInside(cacheCell)) return;
 	ivec3 tileCell = ivec3(gl_LocalInvocationID) + ivec3(1);
-	ivec3 worldCell = IrcCurrentWorldBase(cameraPosition) +
-		cacheCell - FOXY_IRC_GRID_OFFSET;
 	if (IrcSharedProbeInsideOpaque(tileCell)) {
 		return;
 	}
@@ -441,6 +438,7 @@ void main() {
 	ircActiveCells[activeIndex] = IrcIndex(cacheCell);
 	return;
 
+#if 0
 	IrcEntry previousEntry = frameCounter > 0
 		? IrcPreviousWorldEntry(worldCell)
 		: IrcEmptyEntry();
@@ -731,6 +729,7 @@ void main() {
 		blendCurrent
 	);
 	IrcStoreCurrent(cacheCell, currentEntry, frameCounter);
+#endif
 }
 
 #else
