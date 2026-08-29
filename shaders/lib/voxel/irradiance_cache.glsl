@@ -421,6 +421,23 @@ IrcEntry IrcLoadPrevious(const in ivec3 cell, const in int currentFrame) {
 		: IrcLoadA(cell, currentFrame - 1);
 }
 
+float IrcLoadPreviousSampleCount(
+	const in ivec3 worldCell,
+	const in int currentFrame
+) {
+	ivec3 cell = worldCell - IrcPreviousWorldBase(previousCameraPosition) +
+		FOXY_IRC_GRID_OFFSET;
+	if (!IrcInside(cell)) return 0.0;
+	uint word = IrcIndex(cell) * FOXY_IRC_WORDS_PER_PROBE;
+	uint expectedFrame = IrcFrameTag(currentFrame - 1);
+	uint packedCount = (currentFrame & 1) == 0
+		? ((irradianceCacheB[word + 19u] == expectedFrame)
+			? irradianceCacheB[word] : 0u)
+		: ((irradianceCacheA[word + 19u] == expectedFrame)
+			? irradianceCacheA[word] : 0u);
+	return max(unpackHalf2x16(packedCount).x, 0.0);
+}
+
 IrcEntry IrcLoadQueryA(const in ivec3 cell, const in int expectedFrame) {
 	if (!IrcInside(cell)) return IrcEmptyEntry();
 	uint word = IrcIndex(cell) * FOXY_IRC_WORDS_PER_PROBE;

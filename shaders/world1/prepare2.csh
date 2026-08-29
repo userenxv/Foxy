@@ -451,10 +451,9 @@ void main() {
 	ivec3 worldCell = IrcCurrentWorldBase(cameraPosition) +
 		cacheCell - FOXY_IRC_GRID_OFFSET;
 
-	IrcEntry previousEntry = frameCounter > 0
-		? IrcPreviousWorldEntry(worldCell)
-		: IrcEmptyEntry();
-	float previousCount = previousEntry.sampleCount;
+	float previousCount = frameCounter > 0
+		? IrcLoadPreviousSampleCount(worldCell, frameCounter)
+		: 0.0;
 	vec3 neutralSkyMeanRadiance = IrcNeutralSkyMeanRadiance();
 	float currentSkySignature = dot(
 		neutralSkyMeanRadiance,
@@ -601,6 +600,9 @@ void main() {
 	sampleNegativeDirectIrradianceZ *= irradianceNormalization;
 	vec3 positiveValid = step(vec3(1.0e-5), positiveWeight);
 	vec3 negativeValid = step(vec3(1.0e-5), negativeWeight);
+	IrcEntry previousEntry = frameCounter > 0
+		? IrcPreviousWorldEntry(worldCell)
+		: IrcEmptyEntry();
 	vec3 batchPositiveMean = mix(
 		previousEntry.positiveVisibilityMean,
 		positiveDistance / max(positiveWeight, vec3(1.0e-5)),
