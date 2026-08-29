@@ -970,7 +970,7 @@ void main() {
 		);
 	#endif
 	#if FOXY_VOXEL_GI_ACTIVE == 1
-		#if FOXY_IRC_MODE == 0 && FOXY_RAY_MODE != FOXY_RAY_SSPT_VRTGI
+		#if FOXY_IRC_MODE == 0 && FOXY_RAY_MODE != FOXY_RAY_SSPT_VRTGI && FOXY_RAY_MODE != FOXY_RAY_IRC_SSPT
 		// Outside VRTGI, use the continuous pre-quantization lightmap.
 		vec3 vrtgiFallbackIndirect = GbufferLitVrtgiFallbackIndirect(
 			clamp(materialLmcoord, vec2(0.0), vec2(1.0)),

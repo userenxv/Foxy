@@ -138,7 +138,8 @@ const float centerDepthHalflife = 1.0; // [0.1 0.2 0.3 0.5 0.75 1.0 1.5 2.0 3.0 
 #define FOXY_RAY_IRC 2
 #define FOXY_RAY_VRTGI 3
 #define FOXY_RAY_SSPT_VRTGI 4
-#define FOXY_RAY_MODE 0 // [0 1 2 3 4]
+#define FOXY_RAY_IRC_SSPT 5
+#define FOXY_RAY_MODE 0 // [0 1 2 3 4 5]
 #define FOXY_SSPT_SPP 1 // [1 2]
 #define FOXY_SSPT_TRACE_STEPS 16 // [8 12 16 20 24 28 32]
 #define FOXY_SSPT_MAX_DISTANCE 48.0 // [16.0 24.0 32.0 48.0 64.0 96.0]
@@ -271,7 +272,7 @@ float PresentationPostExposureCalibration(const in float daylightWeight) {
 #else
 	#define FOXY_RAY_ACTIVE 0
 #endif
-#if FOXY_RAY_MODE == FOXY_RAY_SSGI || FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI
+#if FOXY_RAY_MODE == FOXY_RAY_SSGI || FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI || FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
 	#define FOXY_SSPT 1
 #else
 	#define FOXY_SSPT 0

@@ -153,7 +153,7 @@ vec2 SsptTemporalRasterUvFromRenderPixel(const in ivec2 pixel, const in ivec2 re
 }
 
 bool SsptTemporalTracePixelSampled(const in ivec2 tracePixel) {
-	#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_IRC_MODE == 0 && FOXY_VRTGI_TEMPORAL_INTERLEAVE == 1
+	#if FOXY_VOXEL_TRACING == 1 && FOXY_VRTGI_TEMPORAL_INTERLEAVE == 1
 		return (tracePixel.x & 1) == (frameCounter & 1);
 	#else
 		return true;
@@ -1053,23 +1053,45 @@ void main() {
 					0
 				).rgb);
 			#endif
-			vec3 coldStartFallback = VrtgiReceiverFallbackRadiance(
-				currentLightmap,
-				currentNormal,
-				fallbackSkyFluence
-			);
 			vec3 coldStartPlayerPosition = (
 				gbufferModelViewInverse * vec4(currentViewPos, 1.0)
 			).xyz;
-			float coldStartOriginBias = max(
-				0.025,
-				max(-currentViewPos.z, 1.0e-3) * 0.00065
-			);
-			float coldStartDomainWeight = VrtgiReceiverDomainWeight(
-				coldStartPlayerPosition + currentNormal * coldStartOriginBias,
-				cameraPosition
-			);
-			coldStartFallback *= 1.0 - coldStartDomainWeight;
+			vec3 coldStartFallback = vec3(0.0);
+			#if FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
+				#if FOXY_IRRADIANCE_CACHE_ACTIVE == 1
+					vec3 cacheGridPosition = VoxelGridSceneToGrid(
+						coldStartPlayerPosition,
+						cameraPosition
+					) + currentNormal * 0.08;
+					float cacheDomainWeight;
+					float cacheConfidence;
+					coldStartFallback = IrcSampleOuterSurfaceMode(
+						cacheGridPosition,
+						currentNormal,
+						cameraPosition,
+						frameCounter,
+						false,
+						cacheDomainWeight,
+						cacheConfidence
+					) * (FOXY_IRRADIANCE_CACHE_STRENGTH / 8.0) *
+						cacheDomainWeight * step(0.02, cacheConfidence);
+				#endif
+			#else
+				coldStartFallback = VrtgiReceiverFallbackRadiance(
+					currentLightmap,
+					currentNormal,
+					fallbackSkyFluence
+				);
+				float coldStartOriginBias = max(
+					0.025,
+					max(-currentViewPos.z, 1.0e-3) * 0.00065
+				);
+				float coldStartDomainWeight = VrtgiReceiverDomainWeight(
+					coldStartPlayerPosition + currentNormal * coldStartOriginBias,
+					cameraPosition
+				);
+				coldStartFallback *= 1.0 - coldStartDomainWeight;
+			#endif
 			float fallbackLuma = RtDenoiserLuma(coldStartFallback);
 			float inverseColdVisibility = 1.0 - coldStartVisibility;
 			vec2 sourceBootstrapMoments = bootstrapMoments;

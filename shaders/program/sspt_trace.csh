@@ -11,7 +11,7 @@
 #else
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 #endif
-#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_IRC_MODE == 0 && FOXY_VRTGI_TEMPORAL_INTERLEAVE == 1
+#if FOXY_VOXEL_TRACING == 1 && FOXY_VRTGI_TEMPORAL_INTERLEAVE == 1
 const vec2 workGroupsRender = vec2(
 	FOXY_RAY_RESOLUTION * 0.5,
 	FOXY_RAY_RESOLUTION
@@ -94,12 +94,12 @@ uniform sampler2DShadow shadowtex1;
 #if FOXY_VOXEL_GI_ACTIVE == 1
 	#include "/lib/voxel/voxel_grid.glsl"
 	#include "/lib/voxel/voxel_shape.glsl"
-	#if defined(FOXY_SSPT_TRACE_LIBRARY_ONLY)
+	#if defined(FOXY_SSPT_TRACE_LIBRARY_ONLY) || FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
 		#include "/lib/voxel/irradiance_cache.glsl"
 	#endif
 #endif
 
-#if FOXY_VOXEL_GI_ACTIVE == 1
+#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_RAY_MODE != FOXY_RAY_IRC_SSPT
 	#define FOXY_ACTIVE_GI_SPP FOXY_VOXEL_GI_SPP
 #else
 	#define FOXY_ACTIVE_GI_SPP FOXY_SSPT_SPP
@@ -244,7 +244,7 @@ vec3 SsptScreenHitRadiance(const in ivec2 hitPixel) {
 #endif
 
 float SsptSignalStorageScale() {
-	#if FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI
+	#if FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI || FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
 		// Hybrid history shares VRTGI/IRC's FP16 storage scale.
 		return 1.0 / 8.0;
 	#else
@@ -830,7 +830,7 @@ void main() {
 		return;
 	#endif
 	ivec2 tracePixel;
-	#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_VRTGI_TEMPORAL_INTERLEAVE == 1
+	#if FOXY_VOXEL_TRACING == 1 && FOXY_VRTGI_TEMPORAL_INTERLEAVE == 1
 		ivec2 compactPixel = ivec2(gl_GlobalInvocationID.xy);
 		ivec2 compactSize = ivec2((traceSize.x + 1) / 2, traceSize.y);
 		if (any(greaterThanEqual(compactPixel, compactSize))) return;
@@ -864,7 +864,7 @@ void main() {
 	vec3 originViewPos = primaryViewPos + viewNormal * originBias;
 	vec3 originPlayerPos = (gbufferModelViewInverse * vec4(originViewPos, 1.0)).xyz;
 
-#if FOXY_VOXEL_GI_ACTIVE == 1
+#if FOXY_VOXEL_TRACING == 1
 	vec3 voxelRayOrigin = VoxelGridSceneToGrid(
 		originPlayerPos,
 		cameraPosition
@@ -884,7 +884,7 @@ void main() {
 		);
 		return;
 	}
-	#endif
+#endif
 #endif
 
 	vec3 radianceSum = vec3(0.0);
@@ -892,6 +892,7 @@ void main() {
 	float hitCount = 0.0;
 	float missCount = 0.0;
 	float maximumRejection = 0.0;
+	float ircFallbackCount = 0.0;
 #if FOXY_VOXEL_GI_ACTIVE == 1
 	#if defined(FOXY_DIM_NETHER) || defined(FOXY_DIM_END)
 		vec3 skyUpperHemisphereFluence = DecodeBufferColor(texelFetch(
@@ -965,10 +966,14 @@ void main() {
 		// Shading normals may tilt a sample below the actual surface. Keep the
 		// cosine sampler, but reject those rays against the geometric hemisphere.
 		if (dot(query.worldDirection, primaryGbuffer.worldGeometricNormal) <= 0.0) {
+			#if FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
+				ircFallbackCount += 1.0;
+			#else
 			missCount += 1.0;
+			#endif
 			continue;
 		}
-		#if FOXY_VOXEL_GI_ACTIVE == 1
+		#if FOXY_VOXEL_TRACING == 1
 			query.maxDistance = FOXY_VOXEL_GI_MAX_DISTANCE;
 		#else
 			query.maxDistance = FOXY_SSPT_MAX_DISTANCE;
@@ -1044,6 +1049,23 @@ void main() {
 					} else if (voxelTraceWeight <= 1.0e-5) {
 						missCount += 1.0;
 						screenResolved = true;
+					}
+				#elif FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
+					// A non-terminal screen miss is recovered from the irradiance cache.
+					// Terminal sky escapes remain direct SSPT environment samples.
+					if (screenResult.terminal > 0.5) {
+						float screenSkyVisibility = SsptSkyLeakVisibility(
+							primaryGbuffer.lightmap.y
+						);
+						radianceSum += SsptTerminalSkyRadiance(
+							query.worldDirection,
+							screenSkyVisibility,
+							1.0
+						) * screenResult.transmittance * SsptSignalStorageScale();
+						missCount += 1.0;
+						screenResolved = true;
+					} else {
+						ircFallbackCount += 1.0;
 					}
 				#else
 					missCount += screenResult.terminal;
@@ -1232,6 +1254,38 @@ void main() {
 		#endif
 	}
 
+	#if FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
+	if (ircFallbackCount > 0.0) {
+		#if FOXY_IRRADIANCE_CACHE_ACTIVE == 1
+		vec3 ircGridPosition = VoxelGridSceneToGrid(
+			originPlayerPos,
+			cameraPosition
+		) + primaryGbuffer.worldGeometricNormal * 0.08;
+		float ircDomainWeight;
+		float ircConfidence;
+		vec3 ircEstimate = IrcSampleOuterSurfaceMode(
+			ircGridPosition,
+			primaryGbuffer.worldGeometricNormal,
+			cameraPosition,
+			frameCounter,
+			false,
+			ircDomainWeight,
+			ircConfidence
+		) * (FOXY_IRRADIANCE_CACHE_STRENGTH / 8.0);
+		float ircValid = ircDomainWeight * step(0.02, ircConfidence);
+		if (ircValid > 0.0) {
+			radianceSum += ircEstimate * ircValid * ircFallbackCount;
+			hitCount += ircFallbackCount * ircValid;
+			missCount += ircFallbackCount * (1.0 - ircValid);
+		} else {
+			missCount += ircFallbackCount;
+		}
+		#else
+		missCount += ircFallbackCount;
+		#endif
+	}
+	#endif
+
 	vec3 indirectSignal = radianceSum / float(FOXY_ACTIVE_GI_SPP);
 	float traceState;
 	if (hitCount > 0.5) {
@@ -1245,4 +1299,3 @@ void main() {
 	imageStore(img_ptTrace, tracePixel, vec4(indirectSignal, packedTraceState));
 }
 #endif
-

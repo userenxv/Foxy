@@ -80,7 +80,7 @@ float SsptCompositeSafeDivisor(const in float value) {
 
 float SsptCompositeIndirectIntensity() {
 	#if FOXY_VOXEL_GI_ACTIVE == 1
-		#if FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI
+		#if FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI || FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
 			// Hybrid samples use the same scene-referred scale on both backends.
 			return clamp(FOXY_SSPT_BOUNCE_BRIGHTNESS, 0.0, 15.0);
 		#else
@@ -348,7 +348,7 @@ void main() {
 	#if FOXY_TEMPORAL_JITTER_ACTIVE == 1
 		centerViewUv -= temporalJitter * 0.5;
 	#endif
-	#if FOXY_VOXEL_GI_ACTIVE == 1
+	#if FOXY_VOXEL_TRACING == 1
 		float vrtgiDomainWeight = SsptCompositeVrtgiDomainWeight(
 			centerViewUv,
 			centerDepthRaw,
@@ -405,7 +405,7 @@ void main() {
 			RtDenoiserTraceState(rawTrace.a)
 		);
 		vec3 rawIncoming = max(rawTrace.rgb, vec3(0.0)) * rawPrimaryValid;
-		#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_RAY_MODE != FOXY_RAY_SSPT_VRTGI
+		#if FOXY_RAY_MODE == FOXY_RAY_VRTGI
 			float rawVrtgiWeight = vrtgiDomainWeight * rawPrimaryValid;
 			rawIncoming *= rawVrtgiWeight;
 		#endif
@@ -540,7 +540,7 @@ void main() {
 		vec3 weightedRadiance = weightSum > 1.0e-5 ? radianceSum / weightSum : bestRadiance;
 		float interpolationConfidence = smoothstep(0.24, 0.70, weightSum);
 		vec3 tracedIncoming = mix(bestRadiance, weightedRadiance, interpolationConfidence);
-		#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_RAY_MODE != FOXY_RAY_SSPT_VRTGI
+		#if FOXY_RAY_MODE == FOXY_RAY_VRTGI
 			incomingRadiance = tracedIncoming * vrtgiDomainWeight;
 		#else
 			incomingRadiance = tracedIncoming;
