@@ -430,12 +430,12 @@ float IrcLoadPreviousSampleCount(
 	if (!IrcInside(cell)) return 0.0;
 	uint word = IrcIndex(cell) * FOXY_IRC_WORDS_PER_PROBE;
 	uint expectedFrame = IrcFrameTag(currentFrame - 1);
-	uint packedCount = (currentFrame & 1) == 0
-		? ((irradianceCacheB[word + 19u] == expectedFrame)
-			? irradianceCacheB[word] : 0u)
-		: ((irradianceCacheA[word + 19u] == expectedFrame)
-			? irradianceCacheA[word] : 0u);
-	return max(unpackHalf2x16(packedCount).x, 0.0);
+	if ((currentFrame & 1) == 0) {
+		if (irradianceCacheB[word + 19u] != expectedFrame) return 0.0;
+		return max(unpackHalf2x16(irradianceCacheB[word]).x, 0.0);
+	}
+	if (irradianceCacheA[word + 19u] != expectedFrame) return 0.0;
+	return max(unpackHalf2x16(irradianceCacheA[word]).x, 0.0);
 }
 
 IrcEntry IrcLoadQueryA(const in ivec3 cell, const in int expectedFrame) {
