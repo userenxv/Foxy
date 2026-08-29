@@ -2,7 +2,12 @@
 
 #ifndef FOXY_SSPT_TRACE_LIBRARY_ONLY
 #if FOXY_VOXEL_GI_ACTIVE == 1
-layout(local_size_x = 8, local_size_y = 4, local_size_z = 1) in;
+	#if defined MC_GL_VENDOR_AMD
+		// RDNA executes wave32; keep a full 64-thread tile for predictable occupancy.
+		layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+	#else
+		layout(local_size_x = 8, local_size_y = 4, local_size_z = 1) in;
+	#endif
 #else
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 #endif
