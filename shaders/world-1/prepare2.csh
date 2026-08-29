@@ -430,10 +430,9 @@ vec3 IrcTraceSample(
 	ivec3 hitAirCell = ivec3(floor(hitPosition + hitNormal * 0.08));
 	ivec3 hitWorldCell = IrcCurrentWorldBase(cameraPosition) +
 		hitAirCell - FOXY_IRC_GRID_OFFSET;
-	IrcEntry recurrentEntry = frameCounter > 0
-		? IrcPreviousWorldEntry(hitWorldCell)
-		: IrcEmptyEntry();
-	vec3 recurrentIrradiance = IrcEvaluateDirect(recurrentEntry, hitNormal);
+	vec3 recurrentIrradiance = frameCounter > 0
+		? IrcPreviousDirectWorld(hitWorldCell, hitNormal, frameCounter)
+		: vec3(0.0);
 	vec3 secondBounce = rayTransmittance * surfaceAlbedo * recurrentIrradiance;
 	return directRadiance + secondBounce;
 	#else

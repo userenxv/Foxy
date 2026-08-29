@@ -644,6 +644,76 @@ vec3 IrcEvaluateDirect(const in IrcEntry entry, const in vec3 surfaceNormal) {
 	);
 }
 
+vec3 IrcEvaluateDirectPacked(
+	const in uint baseWord,
+	const in uvec3 positiveDirectLobes,
+	const in uvec3 negativeDirectLobes,
+	const in vec3 surfaceNormal
+) {
+	if (unpackHalf2x16(baseWord).x < 0.5) return vec3(0.0);
+	vec3 normal = normalize(surfaceNormal);
+	vec3 axisWeight = normal * normal;
+	vec3 irradianceX = normal.x >= 0.0
+		? IrcUnpackRgb9e5(positiveDirectLobes.x)
+		: IrcUnpackRgb9e5(negativeDirectLobes.x);
+	vec3 irradianceY = normal.y >= 0.0
+		? IrcUnpackRgb9e5(positiveDirectLobes.y)
+		: IrcUnpackRgb9e5(negativeDirectLobes.y);
+	vec3 irradianceZ = normal.z >= 0.0
+		? IrcUnpackRgb9e5(positiveDirectLobes.z)
+		: IrcUnpackRgb9e5(negativeDirectLobes.z);
+	return max(
+		irradianceX * axisWeight.x +
+		irradianceY * axisWeight.y +
+		irradianceZ * axisWeight.z,
+		vec3(0.0)
+	);
+}
+
+vec3 IrcPreviousDirectWorld(
+	const in ivec3 worldCell,
+	const in vec3 surfaceNormal,
+	const in int currentFrame
+) {
+	ivec3 cell = worldCell - IrcPreviousWorldBase(previousCameraPosition) +
+		FOXY_IRC_GRID_OFFSET;
+	if (!IrcInside(cell)) return vec3(0.0);
+	uint word = IrcIndex(cell) * FOXY_IRC_WORDS_PER_PROBE;
+	uint expectedFrame = IrcFrameTag(currentFrame - 1);
+	if ((currentFrame & 1) == 0) {
+		if (irradianceCacheB[word + 19u] != expectedFrame) return vec3(0.0);
+		return IrcEvaluateDirectPacked(
+			irradianceCacheB[word],
+			uvec3(
+				irradianceCacheB[word + 13u],
+				irradianceCacheB[word + 14u],
+				irradianceCacheB[word + 15u]
+			),
+			uvec3(
+				irradianceCacheB[word + 16u],
+				irradianceCacheB[word + 17u],
+				irradianceCacheB[word + 18u]
+			),
+			surfaceNormal
+		);
+	}
+	if (irradianceCacheA[word + 19u] != expectedFrame) return vec3(0.0);
+	return IrcEvaluateDirectPacked(
+		irradianceCacheA[word],
+		uvec3(
+			irradianceCacheA[word + 13u],
+			irradianceCacheA[word + 14u],
+			irradianceCacheA[word + 15u]
+		),
+		uvec3(
+			irradianceCacheA[word + 16u],
+			irradianceCacheA[word + 17u],
+			irradianceCacheA[word + 18u]
+		),
+		surfaceNormal
+	);
+}
+
 float IrcProbeVisibility(
 	const in IrcEntry entry,
 	const in vec3 probePosition,
