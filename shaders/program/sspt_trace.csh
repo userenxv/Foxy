@@ -1,7 +1,11 @@
 #include "/lib/settings.glsl"
 
 #ifndef FOXY_SSPT_TRACE_LIBRARY_ONLY
+#if FOXY_VOXEL_GI_ACTIVE == 1
+layout(local_size_x = 8, local_size_y = 4, local_size_z = 1) in;
+#else
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+#endif
 #if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_IRC_MODE == 0 && FOXY_VRTGI_TEMPORAL_INTERLEAVE == 1
 const vec2 workGroupsRender = vec2(
 	FOXY_RAY_RESOLUTION * 0.5,
