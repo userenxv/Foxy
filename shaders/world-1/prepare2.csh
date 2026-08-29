@@ -14,8 +14,8 @@ layout(std430, binding = 3) coherent buffer IrradianceFeedback {
 	uint ircActiveCells[];
 };
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
-const ivec3 workGroups = ivec3(8192, 1, 1);
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+const ivec3 workGroups = ivec3(32768, 1, 1);
 const float FOXY_IRC_TRACE_DISTANCE = FOXY_VOXEL_GI_MAX_DISTANCE;
 const int FOXY_IRC_TRACE_STEPS = FOXY_VOXEL_GI_TRACE_ITERATIONS;
 const int FOXY_IRC_INITIAL_SAMPLES_PER_PROBE = 8;
