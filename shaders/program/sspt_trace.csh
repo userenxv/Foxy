@@ -85,7 +85,9 @@ uniform sampler2DShadow shadowtex1;
 #if FOXY_VOXEL_GI_ACTIVE == 1
 	#include "/lib/voxel/voxel_grid.glsl"
 	#include "/lib/voxel/voxel_shape.glsl"
-	#include "/lib/voxel/irradiance_cache.glsl"
+	#if defined(FOXY_SSPT_TRACE_LIBRARY_ONLY)
+		#include "/lib/voxel/irradiance_cache.glsl"
+	#endif
 #endif
 
 #if FOXY_VOXEL_GI_ACTIVE == 1
@@ -816,7 +818,7 @@ int VoxelGiTrace(
 	return FOXY_VOXEL_GI_TRACE_STEP_LIMIT;
 }
 
-#if FOXY_IRRADIANCE_CACHE_ACTIVE == 1
+#if FOXY_IRRADIANCE_CACHE_ACTIVE == 1 && defined(FOXY_SSPT_TRACE_LIBRARY_ONLY)
 void VoxelGiEmitterPrimitiveCandidate(
 	const in vec3 receiverPosition,
 	const in vec3 receiverNormal,
