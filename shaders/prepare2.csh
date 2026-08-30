@@ -388,18 +388,18 @@ void main() {
 	vec3 sampleNegativeDirectIrradianceX = vec3(0.0);
 	vec3 sampleNegativeDirectIrradianceY = vec3(0.0);
 	vec3 sampleNegativeDirectIrradianceZ = vec3(0.0);
+	uint sequenceBase = previousCount < FOXY_IRC_CONVERGED_SAMPLE_COUNT
+		? uint(previousCount)
+		: uint(max(frameCounter, 0)) *
+			uint(FOXY_IRC_REFRESH_SAMPLES_PER_PROBE);
+	vec4 sequenceRotation = vec4(
+		IrcHashFloat(randomSeed + 0x9e3779b9u),
+		IrcHashFloat(randomSeed + 0x85ebca6bu),
+		IrcHashFloat(randomSeed + 0xc2b2ae35u),
+		IrcHashFloat(randomSeed + 0x27d4eb2fu)
+	);
 	for (int sampleIndex = 0; sampleIndex < samplesPerProbe; ++sampleIndex) {
-		uint sequenceBase = previousCount < FOXY_IRC_CONVERGED_SAMPLE_COUNT
-			? uint(previousCount)
-			: uint(max(frameCounter, 0)) *
-				uint(FOXY_IRC_REFRESH_SAMPLES_PER_PROBE);
 		uint sampleOrdinal = sequenceBase + uint(sampleIndex);
-		vec4 sequenceRotation = vec4(
-			IrcHashFloat(randomSeed + 0x9e3779b9u),
-			IrcHashFloat(randomSeed + 0x85ebca6bu),
-			IrcHashFloat(randomSeed + 0xc2b2ae35u),
-			IrcHashFloat(randomSeed + 0x27d4eb2fu)
-		);
 		vec4 sampleSequence = fract(
 			vec4(0.5) + sequenceRotation + float(sampleOrdinal) * vec4(
 				0.8566748838545030,

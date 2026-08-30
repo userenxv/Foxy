@@ -182,30 +182,7 @@ float ReflectionTraceSelected(
 	const in float reflectionType,
 	const in vec3 worldNormal
 ) {
-	#if FOXY_MATERIAL_REFLECTION_HIGH_QUALITY == 1
-		return 1.0;
-	#else
-	ivec2 pixel = ReflectionPixel(texcoord);
-	int pixelPhase = (pixel.x & 1) | ((pixel.y & 1) << 1);
-	int framePhase = frameCounter & 3;
-	bool scheduled = pixelPhase == framePhase;
-	if (reprojection.motionPixels > 1.25) {
-		scheduled = scheduled || pixelPhase == ((framePhase + 2) & 3);
-	}
-	if (scheduled || reprojection.valid < 0.5) return 1.0;
-
-	ivec2 historyPixel = ReflectionPixel(reprojection.previousRasterUv);
-	ReflectionHistorySample history = ReflectionLoadPrevious(historyPixel);
-	float historyAge;
-	float geometryWeight = ReflectionHistoryGeometryWeight(
-		history,
-		reflectionType,
-		worldNormal,
-		reprojection.expectedDepth,
-		historyAge
-	);
-	return geometryWeight < 0.18 ? 1.0 : 0.0;
-	#endif
+	return 1.0;
 }
 
 void ReflectionAccumulateTap(
@@ -281,15 +258,15 @@ ReflectionTemporalResult ResolveReflectionTemporal(
 	float cameraMotion = smoothstep(0.002, 0.12, length(cameraPosition - previousCameraPosition));
 	float screenMotion = smoothstep(0.65, 5.0, reprojection.motionPixels);
 	float temporalMotion = max(cameraMotion, screenMotion);
-	float progressiveWeight = clamp(historyAge / max(historyAge + 1.0, 1.0), 0.50, 0.96875);
+	float progressiveWeight = clamp(historyAge / max(historyAge + 1.0, 1.0), 0.58, 0.9765625);
 	float historyWeight = mix(0.72, progressiveWeight, step(1.5, reflectionType));
 	if (reflectionType >= 1.5) {
 		historyWeight = mix(0.80, 0.96875, smoothstep(2.0, 24.0, historyAge));
 	}
 
 	float historyResponseCap = mix(
-		0.88,
-		0.94,
+		0.92,
+		0.97,
 		smoothstep(0.18, 0.72, perceptualRoughness)
 	);
 	historyWeight = min(historyWeight, historyResponseCap);

@@ -11,14 +11,8 @@ uniform float viewHeight;
 
 uniform sampler2D colortex2;
 uniform sampler2D depthtex1;
-#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 0
+#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 0 || FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1
 	uniform sampler2D colortex14;
-#elif FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1
-	#if FOXY_MATERIAL_REFLECTION_HIGH_QUALITY == 1
-		uniform sampler2D colortex14;
-	#else
-		uniform sampler2D colortex0;
-	#endif
 #elif FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 2
 	uniform sampler2D colortex14;
 #else
@@ -122,7 +116,7 @@ BackendOpaqueSurface MaterialReflectionOpaqueSurface(
 }
 
 vec4 MaterialReflectionFilterSource(const in vec2 uv) {
-	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 0 || FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 2 || (FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1 && FOXY_MATERIAL_REFLECTION_HIGH_QUALITY == 1)
+	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 0 || FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1 || FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 2
 		return texture2D(colortex14, uv);
 	#else
 		return texture2D(colortex0, uv);
@@ -180,25 +174,14 @@ vec4 FilterMaterialReflectionCross(
 	vec4 centerSignal = MaterialReflectionFilterSource(centerRasterUv);
 
 	if (centerMaterial.perceptualRoughness <= 0.085) return centerSignal;
-	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1 && FOXY_MATERIAL_REFLECTION_HIGH_QUALITY == 1
-		vec2 sourceSize = vec2(textureSize(colortex14, 0));
-	#elif FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 2
+	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1 || FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 2
 		vec2 sourceSize = vec2(textureSize(colortex14, 0));
 	#else
 		vec2 sourceSize = vec2(textureSize(colortex0, 0));
 	#endif
-	vec3 viewDirection = normalize(centerViewPosition);
-	vec3 normalView = normalize(transpose(mat3(gbufferModelViewInverse)) * centerMaterial.worldNormal);
-	vec2 projectedTangent = cross(normalView, viewDirection).xy;
-	float tangentLengthSquared = dot(projectedTangent, projectedTangent);
-	vec2 filterAxisX = tangentLengthSquared > 1.0e-7
-		? projectedTangent * inversesqrt(tangentLengthSquared)
-		: vec2(1.0, 0.0);
-	vec2 filterAxisY = vec2(-filterAxisX.y, filterAxisX.x);
+	vec2 filterAxisX = vec2(0.5, 0.0);
+	vec2 filterAxisY = vec2(0.0, 0.5);
 	float perceptualRoughness = centerMaterial.perceptualRoughness;
-	float grazing = 1.0 - Saturate(dot(normalView, -viewDirection));
-	filterAxisX *= mix(0.18, 0.48, grazing);
-	filterAxisY *= mix(0.68, 0.50, grazing);
 
 	const vec2 lobeRotations[4] = vec2[4](
 		vec2(1.0, 0.0),
@@ -276,18 +259,13 @@ vec4 FilterMaterialReflection(
 	vec4 centerSignal = MaterialReflectionFilterSource(centerRasterUv);
 	temporalLowerBound = vec3(0.0);
 	temporalUpperBound = vec3(65504.0);
-	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1 || FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 2
-		return FilterMaterialReflectionCross(
-			centerRasterUv, centerMaterial, centerLinearDepth, centerViewPosition
-		);
-	#endif
 	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 3
 		vec3 encodedCurrent = ReflectionTemporalEncodeColor(centerSignal.rgb);
 		temporalLowerBound = max(encodedCurrent - vec3(1.25), vec3(0.0));
 		temporalUpperBound = encodedCurrent + vec3(1.25);
 		return centerSignal;
 	#endif
-	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 0 && FOXY_MATERIAL_REFLECTION_HIGH_QUALITY == 1
+	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 0
 		return centerSignal;
 	#endif
 
@@ -296,10 +274,7 @@ vec4 FilterMaterialReflection(
 		vec2(-1.0,  0.0), vec2(0.0,  0.0), vec2(1.0,  0.0),
 		vec2(-1.0,  1.0), vec2(0.0,  1.0), vec2(1.0,  1.0)
 	);
-	const vec2 latticeCorners[4] = vec2[4](
-		vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0), vec2(1.0, 1.0)
-	);
-	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 0 || FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 2 || (FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1 && FOXY_MATERIAL_REFLECTION_HIGH_QUALITY == 1)
+	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 0 || FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1 || FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 2
 		vec2 sourceSize = vec2(textureSize(colortex14, 0));
 	#else
 		vec2 sourceSize = vec2(textureSize(colortex0, 0));
@@ -313,22 +288,21 @@ vec4 FilterMaterialReflection(
 	float filterRadius = 0.0;
 	vec2 tapJitter = vec2(0.0);
 	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER > 0
-		vec3 viewDirection = normalize(centerViewPosition);
-		vec3 normalView = normalize(transpose(mat3(gbufferModelViewInverse)) * centerMaterial.worldNormal);
-		vec2 tangentProjected = cross(normalView, viewDirection).xy;
-		float tangentLengthSquared = dot(tangentProjected, tangentProjected);
-		if (tangentLengthSquared > 1.0e-7) {
-			filterAxisX = tangentProjected * inversesqrt(tangentLengthSquared);
-			filterAxisY = vec2(-filterAxisX.y, filterAxisX.x);
-		}
-		float grazing = 1.0 - Saturate(dot(normalView, -viewDirection));
-		filterAxisX *= mix(0.18, 0.48, grazing);
-		filterAxisY *= mix(0.68, 0.50, grazing);
+		filterAxisX = vec2(1.0, 0.0);
+		filterAxisY = vec2(0.0, 1.0);
+		vec2 jitterSeed = floor(gl_FragCoord.xy) + vec2(
+			float(frameCounter) * 0.75487765 + 17.0,
+			float(frameCounter) * 0.56984026 + 43.0
+		);
+		tapJitter = vec2(
+			Hash12(jitterSeed),
+			Hash12(jitterSeed.yx + vec2(29.0, 71.0) + float(FOXY_MATERIAL_REFLECTION_FILTER_ORDER) * vec2(13.0, 31.0))
+		) - vec2(0.5);
 		float roughSpread = min(perceptualRoughness * perceptualRoughness * 20.0, 1.10);
 		#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1
-			filterRadius = 30.0 * 1.35 * roughSpread;
+			filterRadius = 6.0 * roughSpread;
 		#elif FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 2
-			filterRadius = 15.0 * 1.35 * roughSpread;
+			filterRadius = 12.0 * roughSpread;
 		#else
 			filterRadius = 10.0 * 1.35 * roughSpread;
 			vec2 temporalSeed = floor(gl_FragCoord.xy) + vec2(
@@ -343,32 +317,16 @@ vec4 FilterMaterialReflection(
 	#endif
 	vec3 signalSum = vec3(0.0);
 	float weightSum = 0.0;
+	float neighborSupport = 0.0;
 
 	for (int i = 0; i < 9; ++i) {
-		#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 0
-			if (i >= 4) break;
-		#endif
 		vec2 sampleRasterUv;
 		float spatialWeight;
-		#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 0
-			vec2 pixel = floor(centerRasterUv * sourceSize);
-			float phase = float(frameCounter & 3);
-			vec2 parity = vec2(mod(phase, 2.0), floor(phase * 0.5));
-			vec2 latticePosition = (pixel - parity) * 0.5;
-			vec2 latticeBase = floor(latticePosition);
-			vec2 latticeFraction = fract(latticePosition);
-			vec2 corner = latticeCorners[i];
-			vec2 samplePixel = parity + 2.0 * (latticeBase + corner);
-			sampleRasterUv = clamp((samplePixel + 0.5) / sourceSize, vec2(0.001), vec2(0.999));
-			vec2 bilinearWeight = mix(vec2(1.0) - latticeFraction, latticeFraction, corner);
-			spatialWeight = bilinearWeight.x * bilinearWeight.y;
-		#else
-			vec2 pixelSize = 1.0 / sourceSize;
-			vec2 filterOffset = offsets[i] + tapJitter;
-			filterOffset = filterOffset.x * filterAxisX + filterOffset.y * filterAxisY;
-			sampleRasterUv = clamp(centerRasterUv + filterOffset * pixelSize * filterRadius, vec2(0.001), vec2(0.999));
-			spatialWeight = 1.0;
-		#endif
+		vec2 pixelSize = 1.0 / sourceSize;
+		vec2 filterOffset = offsets[i] + tapJitter * 0.35;
+		filterOffset = filterOffset.x * filterAxisX + filterOffset.y * filterAxisY;
+		sampleRasterUv = clamp(centerRasterUv + filterOffset * pixelSize * filterRadius, vec2(0.001), vec2(0.999));
+		spatialWeight = 1.0;
 
 		MaterialReflectionGuide sampleMaterial;
 		vec4 sampleSignal;
@@ -395,7 +353,11 @@ vec4 FilterMaterialReflection(
 			sampleLinearDepth = max(-sampleSurface.viewPosition.z, 0.0);
 		#endif
 
-float signalValid = step(1.0e-7, max(sampleSignal.r, max(sampleSignal.g, sampleSignal.b)));
+		float signalValid = step(0.01, sampleSignal.a) * sampleSignal.a;
+		#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER > 0
+			float gaussian = exp2(-0.5 * dot(offsets[i], offsets[i]) / 1.80);
+			spatialWeight *= gaussian;
+		#endif
 		float weight = spatialWeight * signalValid;
 		weight *= MaterialReflectionSurfaceEnabled(sampleMaterial);
 		weight *= MaterialReflectionPow256(
@@ -404,13 +366,25 @@ float signalValid = step(1.0e-7, max(sampleSignal.r, max(sampleSignal.g, sampleS
 		weight *= pow(max(dot(centerMaterial.worldNormal, sampleMaterial.worldNormal), 0.0), mix(42.0, 16.0, perceptualRoughness));
 		weight *= exp2(-32.0 * abs(sampleLinearDepth - centerLinearDepth) / max(centerLinearDepth, 0.5));
 		weight *= exp2(-24.0 * abs(sampleMaterial.perceptualRoughness - perceptualRoughness));
+		#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER > 0
+			if (i != 4) neighborSupport += weight;
+		#endif
 		signalSum += MaterialReflectionPowerEncode(sampleSignal.rgb, compression) * weight;
 		weightSum += weight;
 	}
 
 	vec4 filtered = weightSum < 1.0e-5
 		? centerSignal
-		: vec4(MaterialReflectionPowerDecode(signalSum / weightSum, compression), 1.0);
+		: vec4(MaterialReflectionPowerDecode(signalSum / weightSum, compression), clamp(weightSum, 0.0, 1.0));
+	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER > 0
+		float farComplexSurface = smoothstep(28.0, 110.0, centerLinearDepth)
+			* mix(0.35, 1.0, centerMaterial.metalness)
+			* mix(0.55, 1.0, smoothstep(0.18, 0.72, perceptualRoughness));
+		float support = Saturate(neighborSupport * 0.30);
+		float isolatedFade = mix(1.0, smoothstep(0.18, 0.72, support), farComplexSurface);
+		filtered.rgb *= isolatedFade;
+		filtered.a *= isolatedFade;
+	#endif
 	return filtered;
 }
 
@@ -530,16 +504,13 @@ void main() {
 			temporalLowerBound,
 			temporalUpperBound
 		);
-		float currentAvailable = step(
-			1.0e-7,
-			max(filteredReflection.r, max(filteredReflection.g, filteredReflection.b))
-		);
+		float currentAvailable = step(0.01, filteredReflection.a);
 		ReflectionReprojection reflectionReprojection = ReflectionBuildReprojection(
 			currentViewPosition
 		);
 		ReflectionTemporalResult temporalReflection = ResolveReflectionTemporal(
 			filteredReflection.rgb,
-			currentAvailable,
+			filteredReflection.a,
 			currentAvailable,
 			2.0,
 			material.perceptualRoughness,

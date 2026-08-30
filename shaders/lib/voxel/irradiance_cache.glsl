@@ -815,6 +815,29 @@ float IrcSurfaceTopologyWeightWithStep(
 		VoxelGridTopologyOccupied(probePayload) ? 1.0 : 0.0;
 }
 
+float IrcSurfaceTopologyWeightPrepared(
+	const in ivec3 probeCell,
+	const in ivec3 querySurfaceCell,
+	const in uint queryPayload,
+	const in int queryShape,
+	const in ivec3 normalStep
+) {
+	if (!VoxelGridInside(querySurfaceCell)) return 1.0;
+	if (!VoxelGridTopologyOccupied(queryPayload)) return 1.0;
+	ivec3 probeSurfaceCell = probeCell - normalStep;
+	if (!VoxelGridInside(probeCell) ||
+		!VoxelGridInside(probeSurfaceCell)) return 0.0;
+	if (queryShape >= 0) {
+		int probeShape = IrcPartialShapeDescriptor(probeSurfaceCell);
+		if (probeShape < 0) probeShape = IrcPartialShapeDescriptor(probeCell);
+		if (probeShape == queryShape) return 1.0;
+	}
+	uint probeAirPayload = VoxelGridLoadUnchecked(probeCell);
+	uint probePayload = VoxelGridLoadUnchecked(probeSurfaceCell);
+	return !VoxelGridTopologyOccupied(probeAirPayload) &&
+		VoxelGridTopologyOccupied(probePayload) ? 1.0 : 0.0;
+}
+
 float IrcSurfaceTopologyWeight(
 	const in ivec3 probeCell,
 	const in vec3 queryPosition,
@@ -1268,14 +1291,27 @@ vec3 IrcSampleOuterSurfaceMode(
 	float weightSum = 0.0;
 	float temporalSupport = 0.0;
 	float validSupport = 0.0;
+	ivec3 queryAirCell = ivec3(floor(sampleGridPosition));
+	ivec3 querySurfaceCell = queryAirCell - normalStep;
+	uint queryPayload = VoxelGridInside(querySurfaceCell)
+		? VoxelGridLoadUnchecked(querySurfaceCell)
+		: 0u;
+	int queryShape = VoxelGridInside(querySurfaceCell) &&
+		VoxelGridTopologyOccupied(queryPayload)
+		? VoxelShapeDescriptorForPayload(
+			VoxelGridMaterial(queryPayload),
+			queryPayload
+		)
+		: -1;
 	for (int b = -1; b <= 2; ++b) {
 		for (int a = -1; a <= 2; ++a) {
 			float surfaceWeight = surfaceWeights[b + 1][a + 1];
 			ivec3 cell = baseCell + tangentA * a + tangentB * b;
-			float spatialWeight = surfaceWeight * IrcSurfaceTopologyWeightWithStep(
+			float spatialWeight = surfaceWeight * IrcSurfaceTopologyWeightPrepared(
 				cell,
-				sampleGridPosition,
-				surfaceNormal,
+				querySurfaceCell,
+				queryPayload,
+				queryShape,
 				normalStep
 			);
 			IrcAccumulateProbe(
