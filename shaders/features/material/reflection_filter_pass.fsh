@@ -457,13 +457,7 @@ void main() {
 	vec2 rasterUv = texcoord;
 	vec2 viewUv = MaterialReflectionViewUv(rasterUv);
 	vec2 renderUv = MaterialReflectionRenderUv(rasterUv);
-	BackendOpaqueSurface opaqueSurface = BackendResolveOpaqueSurface(
-		viewUv,
-		renderUv,
-		texture2D(depthtex1, renderUv).r,
-		gbufferProjectionInverse
-	);
-	float depthRaw = opaqueSurface.rawDepth;
+	float depthRaw = texture2D(depthtex1, renderUv).r;
 	vec4 packedSurface = texture2D(colortex2, MaterialReflectionPayloadUv(rasterUv));
 	MaterialReflectionGuide material = DecodeMaterialReflectionGuide(packedSurface, depthRaw);
 	float enabled = MaterialReflectionSurfaceEnabled(material);
@@ -473,6 +467,12 @@ void main() {
 			gl_FragData[0] = vec4(0.0);
 			return;
 		}
+		BackendOpaqueSurface opaqueSurface = BackendResolveOpaqueSurface(
+			viewUv,
+			renderUv,
+			depthRaw,
+			gbufferProjectionInverse
+		);
 		vec3 currentViewPosition = opaqueSurface.viewPosition;
 		float linearDepth = max(-currentViewPosition.z, 0.0);
 		vec3 unusedTemporalLowerBound;
@@ -492,6 +492,12 @@ void main() {
 			gl_FragData[1] = vec4(0.0);
 			return;
 		}
+		BackendOpaqueSurface opaqueSurface = BackendResolveOpaqueSurface(
+			viewUv,
+			renderUv,
+			depthRaw,
+			gbufferProjectionInverse
+		);
 		vec3 currentViewPosition = opaqueSurface.viewPosition;
 		float linearDepth = max(-currentViewPosition.z, 0.0);
 		vec3 temporalLowerBound;
