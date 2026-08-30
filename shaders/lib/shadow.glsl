@@ -7,9 +7,7 @@
 const float SHADOW_AFFINE_FILTER_MIN_FACTOR = 0.41;
 const float SHADOW_RECEIVER_PLANE_BIAS_SCALE = 1.12;
 const float SHADOW_RECEIVER_PLANE_BIAS_MAX = 0.0035;
-// Hardware comparison already covers a 2x2 map footprint. Keep a small,
-// stable PCF footprint even when blocker search finds no blocker so the
-// raster silhouette is resolved continuously instead of snapping at a texel.
+
 const float SHADOW_MIN_FILTER_TEXELS = 0.42;
 
 float ShadowWarpFactor(const in vec2 clipXY) {
@@ -69,10 +67,8 @@ vec2 ShadowTexelOffsetToClip(const in vec2 offsetTexels) {
 }
 
 float ShadowReceiverPlaneBias(const in vec2 clipXY, const in vec2 depthSlope) {
-	// Hardware depth comparison filters neighboring map texels, not neighboring
-	// coordinates in the unwarped shadow domain. Convert true map-texel steps
-	// back through the warp before using the receiver-plane depth slope.
-	mat2 warpJacobian = ShadowWarpJacobian(clipXY);
+
+mat2 warpJacobian = ShadowWarpJacobian(clipXY);
 	float determinant = warpJacobian[0].x * warpJacobian[1].y -
 		warpJacobian[1].x * warpJacobian[0].y;
 	vec2 mapTexel = ShadowTexelOffsetToClip(vec2(1.0));
@@ -91,9 +87,8 @@ float ShadowReceiverPlaneBias(const in vec2 clipXY, const in vec2 depthSlope) {
 		clipTexelX = inverseWarpJacobian * vec2(mapTexel.x, 0.0);
 		clipTexelY = inverseWarpJacobian * vec2(0.0, mapTexel.y);
 	}
-	// A bilinear comparison can select either side of the receiver within half
-	// a texel along both axes. This is the conservative planar depth span.
-	return 0.5 * (
+
+return 0.5 * (
 		abs(dot(depthSlope, clipTexelX)) +
 		abs(dot(depthSlope, clipTexelY))
 	);

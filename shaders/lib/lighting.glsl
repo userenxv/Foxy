@@ -30,17 +30,17 @@ float TwilightFactor(const in float sunAltitude) {
 }
 
 float SolarDiscVisibility(const in float sunAltitude) {
-	// Solar radius and refraction keep the disc visible below geometric zero.
+
 	return smoothstep(-0.0175, -0.0040, sunAltitude);
 }
 
 float CelestialRayHorizonVisibility(const in float rayAltitude) {
-	// Disc visibility is separate from atmospheric scattering.
+
 	return smoothstep(-0.0040, 0.0180, rayAltitude);
 }
 
 float DirectCelestialVisibility(const in float sourceAltitude) {
-	// Shadow maps cannot represent direct light below the world horizon.
+
 	return smoothstep(0.0, 0.0175, sourceAltitude);
 }
 
@@ -94,18 +94,16 @@ vec3 AtmosphereMieExtinction() {
 #endif
 }
 
-// Shared ground-level optical transmittance for distant celestial sources.
 float SunsetWarmthControl() {
 	return Saturate((FOXY_SKY_SUNSET_WARMTH - 1.0) * 0.50);
 }
 
 float SunsetAerosolScale(const in float sourceAltitude) {
 	float lowSun = 1.0 - smoothstep(0.015, 0.82, clamp(sourceAltitude, -0.035, 1.0));
-	// Low-altitude aerosol modifies the shared solar spectrum at its source.
+
 	return 1.0 + SunsetWarmthControl() * lowSun * 2.50;
 }
 
-// Low-altitude aerosol transmittance shared by every SunColor consumer.
 vec3 SunsetAerosolTransmittance(const in float sourceAltitude) {
 	float lowSun = 1.0 - smoothstep(0.015, 0.82, clamp(sourceAltitude, -0.035, 1.0));
 	float opticalPath = SunsetWarmthControl() * lowSun * 3.0;
@@ -130,7 +128,6 @@ vec3 AtmosphereCelestialTransmittance(const in float sourceAltitude, const in fl
 	return exp(-min(extinction, vec3(40.0))) * SunsetAerosolTransmittance(sourceAltitude);
 }
 
-// Separate low-altitude spectral response for distant emissive sources.
 vec3 AtmosphereDistantCelestialTransmittance(const in float sourceAltitude, const in float rainStrength) {
 	const float planetRadius = 6371000.0;
 	const float rayleighHeight = 8000.0;
@@ -152,7 +149,7 @@ vec3 AtmosphereSolarTransmittance(const in float sunAltitude, const in float rai
 }
 
 float CloudWeatherMapDirectLightVisibility(const in float rainStrength) {
-	// Rain removes directional light but preserves sky and fog illumination.
+
 	float storm = smoothstep(0.0, 1.0, Saturate(rainStrength));
 	return mix(1.0, 0.025, storm);
 }
@@ -209,7 +206,6 @@ vec3 MoonAmbientColorFromMoonColor(const in vec3 moonColor) {
 	return moonColor * vec3(0.12, 0.15, 0.20) * FOXY_AMBIENT_INTENSITY;
 }
 
-// Water scattering uses continuous source irradiance, not shadow-map selection.
 float WaterSolarIrradiance(const in vec3 solarColor, const in float sunAltitude) {
 	float reference = max(FOXY_SUN_INTENSITY * 2.18, 1.0e-4);
 	return DirectCelestialVisibility(sunAltitude) * Saturate(Luma(solarColor) / reference);
@@ -228,7 +224,7 @@ vec3 SkyAmbientColor(const in float sunAltitude, const in float rainStrength) {
 	vec3 twilightAmbient = vec3(0.56, 0.42, 0.29);
 	vec3 ambient = mix(nightAmbient, dayAmbient, day);
 	ambient = mix(ambient, twilightAmbient, twilight * (1.0 - rainStrength * 0.45) * 0.34);
-	// Diffuse skylight inherits a restrained low-sun spectral shift.
+
 	vec3 solarTransmittance = AtmosphereSolarTransmittance(sunAltitude, rainStrength);
 	float solarTransmittanceLuma = max(Luma(solarTransmittance), 1.0e-4);
 	vec3 solarChroma = solarTransmittance / solarTransmittanceLuma;
@@ -236,7 +232,7 @@ vec3 SkyAmbientColor(const in float sunAltitude, const in float rainStrength) {
 	warmAmbient *= Luma(ambient) / max(Luma(warmAmbient), 1.0e-4);
 	float ambientSunsetWeight = twilight * (1.0 - smoothstep(0.035, 0.22, sunAltitude)) * 0.18;
 	ambient = mix(ambient, warmAmbient, ambientSunsetWeight * (1.0 - rainStrength * 0.45));
-	// Apply aerosol luminance loss after chroma preservation.
+
 	ambient *= Luma(SunsetAerosolTransmittance(sunAltitude));
 	float ambientLuma = Luma(ambient);
 	float daylightNeutrality = day * (1.0 - twilight * 0.72) * FOXY_SKY_AMBIENT_NEUTRALITY;
@@ -262,7 +258,6 @@ float AmbientSkyVisibility(const in float sunAltitude, const in float skyLight) 
 	return mix(minimumVisibility, 1.0, skyAccess);
 }
 
-// Automatic key uses a 12.5% reflected-light calibration ceiling.
 float ExposureKeyFromMeterEv(const in float meterEv) {
 	float meteredLuminance = exp2(clamp(meterEv, -20.0, 20.0));
 	float logAverage = log2(1.0 + meteredLuminance) * 0.30102999566;
@@ -368,7 +363,7 @@ vec3 ApplyFogWithSurfaceTransmission(
 	float skywardFactor = Saturate(viewUp * 0.5 + 0.5);
 	float boundaryBlue = 1.0 - skywardFactor;
 	float blueShift = max(FOXY_FOG_BLUE_SHIFT, 0.0);
-	// Rayleigh airlight grows with optical path; sunset fog retains its source hue.
+
 	float aerialPerspective = Saturate(fog * 1.18);
 	float coolAir = smoothstep(0.015, 0.22, fogColor.b - fogColor.r);
 	float warmAir = smoothstep(0.015, 0.22, fogColor.r - fogColor.b);

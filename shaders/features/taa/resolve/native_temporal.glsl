@@ -1,8 +1,6 @@
 #ifndef FOXY_NATIVE_TEMPORAL_GLSL
 #define FOXY_NATIVE_TEMPORAL_GLSL
 
-// Closest-depth reprojection with bounded rectification and geometry validation.
-
 #if FOXY_VOLUMETRIC_LIGHT == 1 && !defined(FOXY_DIM_NETHER) && !defined(FOXY_DIM_END)
 	#define FOXY_TAA_CURRENT_SCENE colortex0
 #else
@@ -72,7 +70,7 @@ float NativeHistoryGeometryConfidence(
 	const in vec2 uv,
 	const in float expectedPreviousMetric
 ) {
-	// Validate history against all four depths in its filter footprint.
+
 	vec4 packedDepth = textureGather(colortex12, uv, 3);
 	vec4 payloadValid = step(
 		vec4(-(FOXY_TAA_SLOT_HISTORY_DEPTH_BASE + FOXY_TAA_SLOT_HISTORY_DEPTH_SCALE) - 0.001),
@@ -231,8 +229,7 @@ vec3 ResolveTemporalWorldEncoded(
 		historyWeight
 	);
 
-	// Positive-only presentation sharpening never feeds history.
-	float resolvedLuma = Luma(resolvedCompressed);
+float resolvedLuma = Luma(resolvedCompressed);
 	float positiveDetail = max(currentLuma - neighborhoodMean, 0.0);
 	float displayLuma = clamp(
 		resolvedLuma + positiveDetail * FOXY_TAA_SHARPEN,

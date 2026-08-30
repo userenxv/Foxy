@@ -6,6 +6,7 @@
 #include "/lib/celestial.glsl"
 #include "/lib/water.glsl"
 #include "/lib/rain.glsl"
+#include "/lib/surface_pbr.glsl"
 #define FOXY_IMAGE_MAIN_WATER_PRODUCER_CURRENT
 #include "/lib/contracts/water.glsl"
 #include "/lib/contracts/material.glsl"
@@ -49,6 +50,7 @@ varying float waterWaveHeight;
 varying float isWater;
 varying float isIce;
 varying float vertexMaterialId;
+varying float vertexEmissionLevel;
 varying vec3 vertexSunLightColor;
 varying vec3 vertexMoonLightColor;
 varying vec3 vertexSkyAmbientColor;
@@ -187,11 +189,26 @@ void main() {
 		vec3 torchColor = TorchColor(blockLight) * 0.38;
 		float noLightFloor = mix(0.00020, 0.0018, Saturate(blockLight * 1.70 + skyLight * 0.75));
 		vec3 color = baseColor * (lightmapColor * 0.22 + ambientColor + directColor + torchColor + vec3(noLightFloor));
+		float fallbackEmissionMask = PbrFallbackEmissionMask(
+			baseColor,
+			vertexMaterialId,
+			vertexEmissionLevel
+		);
+		if (fallbackEmissionMask > 0.0) {
+			vec3 fallbackEmission = PbrFallbackEmissionRadiance(
+				baseColor,
+				vertexMaterialId,
+				vertexEmissionLevel,
+				fallbackEmissionMask,
+				FOXY_PBR_EMISSION_BRIGHTNESS
+			);
+			color = color * (1.0 - fallbackEmissionMask) + fallbackEmission;
+		}
 		float eyeSkyLight = Saturate(float(eyeBrightnessSmooth.y) / 240.0);
 		color = ApplyPurkinjeVision(color, sunAltitude, blockLight, skyLight, eyeSkyLight);
 		float iceAlpha = mix(0.50, 0.70, Saturate(skyLight * 0.65 + blockLight * 0.25));
 		float alpha = mix(texel.a, min(texel.a, iceAlpha), Saturate(isIce));
-		// composite2 exclusively owns optical glass resolution.
+
 		gl_FragData[0] = vec4(EncodeSceneColor(max(color, vec3(0.0))), isGlass ? 0.0 : alpha);
 		gl_FragData[1] = isGlass
 			? MaterialGlassPacket(TransmissionColor(vertexMaterialId), normalView)
@@ -322,7 +339,7 @@ void main() {
 			surfaceWorldPosition,
 			frameTimeCounter
 		);
-		// Surface reflection stays outside the transmissive payload.
+
 		waterSunGlintSignal = Luma(sunGlint) / max(Luma(max(sunLightColor, vec3(0.0))), 0.08);
 	}
 

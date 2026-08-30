@@ -1,10 +1,6 @@
 #ifndef FOXY_VOXEL_SHAPE_TABLE_GLSL
 #define FOXY_VOXEL_SHAPE_TABLE_GLSL
 
-// Six 1/16-grid AABB coordinates are packed into one uint; meta stores
-// offset | (count << 16). Detailed vanilla openings are generated from
-// the official 1.21.1 block models and texture alpha masks.
-
 const uint FOXY_VOXEL_SHAPE_META[685] = uint[685](
 	0x00020000u, 0x00030002u, 0x00030005u, 0x00020008u, 0x0002000au, 0x0002000cu, 0x0003000eu, 0x00030011u,
 	0x00020014u, 0x00020016u, 0x00020018u, 0x0003001au, 0x0003001du, 0x00020020u, 0x00020022u, 0x00020024u,

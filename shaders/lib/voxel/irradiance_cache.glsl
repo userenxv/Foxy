@@ -8,7 +8,6 @@
 #include "/lib/voxel/voxel_grid.glsl"
 #include "/lib/voxel/voxel_shape.glsl"
 
-// Fixed 128^3 world-aligned cache with six RGB ambient-cube lobes per probe.
 const int FOXY_IRC_SIZE = 128;
 const uint FOXY_IRC_COUNT = 2097152u;
 const uint FOXY_IRC_WORDS_PER_PROBE = 20u;
@@ -786,6 +785,36 @@ int IrcPartialShapeDescriptor(const in ivec3 cell) {
 	);
 }
 
+float IrcSurfaceTopologyWeightWithStep(
+	const in ivec3 probeCell,
+	const in vec3 queryPosition,
+	const in vec3 surfaceNormal,
+	const in ivec3 normalStep
+) {
+	ivec3 queryAirCell = ivec3(floor(queryPosition));
+	ivec3 querySurfaceCell = queryAirCell - normalStep;
+	if (!VoxelGridInside(querySurfaceCell)) return 1.0;
+	uint queryPayload = VoxelGridLoadUnchecked(querySurfaceCell);
+	if (!VoxelGridTopologyOccupied(queryPayload)) return 1.0;
+	ivec3 probeSurfaceCell = probeCell - normalStep;
+	if (!VoxelGridInside(probeCell) ||
+		!VoxelGridInside(probeSurfaceCell)) return 0.0;
+	int queryShape = VoxelShapeDescriptorForPayload(
+		VoxelGridMaterial(queryPayload),
+		queryPayload
+	);
+	if (queryShape >= 0) {
+
+		int probeShape = IrcPartialShapeDescriptor(probeSurfaceCell);
+		if (probeShape < 0) probeShape = IrcPartialShapeDescriptor(probeCell);
+		if (probeShape == queryShape) return 1.0;
+	}
+	uint probeAirPayload = VoxelGridLoadUnchecked(probeCell);
+	uint probePayload = VoxelGridLoadUnchecked(probeSurfaceCell);
+	return !VoxelGridTopologyOccupied(probeAirPayload) &&
+		VoxelGridTopologyOccupied(probePayload) ? 1.0 : 0.0;
+}
+
 float IrcSurfaceTopologyWeight(
 	const in ivec3 probeCell,
 	const in vec3 queryPosition,
@@ -800,28 +829,12 @@ float IrcSurfaceTopologyWeight(
 	} else {
 		normalStep.z = surfaceNormal.z >= 0.0 ? 1 : -1;
 	}
-	ivec3 queryAirCell = ivec3(floor(queryPosition));
-	ivec3 querySurfaceCell = queryAirCell - normalStep;
-	if (!VoxelGridInside(querySurfaceCell)) return 1.0;
-	uint queryPayload = VoxelGridLoadUnchecked(querySurfaceCell);
-	if (!VoxelGridTopologyOccupied(queryPayload)) return 1.0;
-	ivec3 probeSurfaceCell = probeCell - normalStep;
-	if (!VoxelGridInside(probeCell) ||
-		!VoxelGridInside(probeSurfaceCell)) return 0.0;
-	int queryShape = VoxelShapeDescriptorForPayload(
-		VoxelGridMaterial(queryPayload),
-		queryPayload
+	return IrcSurfaceTopologyWeightWithStep(
+		probeCell,
+		queryPosition,
+		surfaceNormal,
+		normalStep
 	);
-	if (queryShape >= 0) {
-		// Partial surfaces may share probes with the same shape identity.
-		int probeShape = IrcPartialShapeDescriptor(probeSurfaceCell);
-		if (probeShape < 0) probeShape = IrcPartialShapeDescriptor(probeCell);
-		if (probeShape == queryShape) return 1.0;
-	}
-	uint probeAirPayload = VoxelGridLoadUnchecked(probeCell);
-	uint probePayload = VoxelGridLoadUnchecked(probeSurfaceCell);
-	return !VoxelGridTopologyOccupied(probeAirPayload) &&
-		VoxelGridTopologyOccupied(probePayload) ? 1.0 : 0.0;
 }
 
 bool IrcCellHasPartialShape(const in ivec3 cell) {
@@ -837,7 +850,7 @@ vec3 IrcSampleGridModeInternal(
 	const in bool topologyAware,
 	out float confidence
 ) {
-	// Renormalized interpolation excludes invalid probes without adding black weight.
+
 	vec3 probeCoordinate = gridPosition - vec3(0.5);
 	ivec3 baseCell = ivec3(floor(probeCoordinate));
 	vec3 fraction = fract(probeCoordinate);
@@ -1173,7 +1186,7 @@ vec3 IrcSampleOuterSurfaceMode(
 		surfaceNormal.z * float(normalAxis.z) >= 0.0
 		? normalAxis
 		: -normalAxis;
-	// Partial receivers query the adjacent air-side probe lattice.
+
 	vec3 sampleGridPosition = gridPosition;
 	if (IrcPartialShapeDescriptor(ivec3(floor(gridPosition))) >= 0) {
 		sampleGridPosition += vec3(normalStep);
@@ -1259,10 +1272,11 @@ vec3 IrcSampleOuterSurfaceMode(
 		for (int a = -1; a <= 2; ++a) {
 			float surfaceWeight = surfaceWeights[b + 1][a + 1];
 			ivec3 cell = baseCell + tangentA * a + tangentB * b;
-			float spatialWeight = surfaceWeight * IrcSurfaceTopologyWeight(
+			float spatialWeight = surfaceWeight * IrcSurfaceTopologyWeightWithStep(
 				cell,
 				sampleGridPosition,
-				surfaceNormal
+				surfaceNormal,
+				normalStep
 			);
 			IrcAccumulateProbe(
 				cell,
@@ -1287,9 +1301,7 @@ vec3 IrcSampleOuterSurfaceMode(
 		? radianceSum / weightSum
 		: vec3(0.0);
 
-	// Partial surfaces use the visibility-weighted estimator only when strict
-	// air/surface topology lacks support.
-	if (confidence >= 0.02) return strictRadiance;
+if (confidence >= 0.02) return strictRadiance;
 	ivec3 queryCell = ivec3(floor(gridPosition));
 	if (!IrcCellHasPartialShape(queryCell) &&
 		!IrcCellHasPartialShape(queryCell - normalStep)) {

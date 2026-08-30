@@ -48,7 +48,7 @@ vec2 PtUnpackUnorm2x8(const in float encodedValue) {
 #define PT_SURFACE_ALPHA_TEST 3.0
 #define PT_SURFACE_DYNAMIC 4.0
 #define PT_SURFACE_EMISSIVE 5.0
-// Strand shares the thin-plant class; remaining values are reserved.
+
 #define PT_SURFACE_STRAND PT_SURFACE_PLANT
 
 float PtSurfaceIsEmissive(const in float surfaceClass) {
@@ -59,7 +59,7 @@ float PtPackLightmapGeometry(
 	const in vec2 lightmap,
 	const in vec3 geometricWorldNormal
 ) {
-	// 4+4 light bits plus an axis-exact signed-octahedral normal byte.
+
 	vec2 levels = floor(clamp(lightmap, vec2(0.0), vec2(1.0)) * 15.0 + 0.5);
 	vec2 signedOct = PtEncodeOctNormal(geometricWorldNormal) * 2.0 - 1.0;
 	vec2 geometryCodes = floor(clamp(signedOct, vec2(-1.0), vec2(1.0)) * 7.0 + 0.5) + 7.0;
@@ -96,7 +96,7 @@ vec4 PtEncodeGbuffer(
 	const in float metalness
 ) {
 	vec3 albedoSrgb = LinearToSrgb(Saturate3(albedo));
-	// Metadata: 3-bit class, 4-bit perceptual roughness, 1-bit metal flag.
+
 	float surfaceBits = clamp(floor(surfaceClass + 0.5), 0.0, 7.0);
 	float perceptualRoughness = sqrt(Saturate(roughness));
 	float roughnessBits = floor(perceptualRoughness * 15.0 + 0.5);
@@ -104,7 +104,7 @@ vec4 PtEncodeGbuffer(
 	float encodedSurfaceClass = (surfaceBits + roughnessBits * 8.0 + metalBit * 128.0) * (1.0 / 255.0);
 	return vec4(
 		PtPackUnorm2x8(albedoSrgb.rg),
-		// Keep the high byte below glass and water sentinels.
+
 		PtPackUnorm2x8(vec2(min(albedoSrgb.b, 253.0 / 255.0), encodedSurfaceClass)),
 		PtPackUnorm2x8(PtEncodeOctNormal(worldNormal)),
 		PtPackLightmapGeometry(lightmap, geometricWorldNormal)
@@ -147,7 +147,7 @@ PtGbufferSample PtDecodeGbuffer(const in vec4 surfaceData, const in float depthR
 	float roughnessBits = floor(materialBits * (1.0 / 8.0));
 	gbufferData.surfaceClass = (materialBits - roughnessBits * 8.0) * (1.0 - transparentSurface);
 	float emissiveSurface = PtSurfaceIsEmissive(gbufferData.surfaceClass);
-	// Emissive RGB shares the color payload but decodes separately from albedo.
+
 	gbufferData.albedo = colorPayload * (1.0 - emissiveSurface);
 	gbufferData.emission = colorPayload * emissiveSurface;
 	float perceptualRoughness = roughnessBits * (1.0 / 15.0);
@@ -158,11 +158,11 @@ PtGbufferSample PtDecodeGbuffer(const in vec4 surfaceData, const in float depthR
 		gbufferData.lightmap,
 		gbufferData.worldGeometricNormal
 	);
-	// Reactive state derives from the material-class byte.
+
 	float foliageReactive = 1.0 - step(0.5, abs(gbufferData.surfaceClass - PT_SURFACE_FOLIAGE));
 	float plantReactive = 1.0 - step(0.5, abs(gbufferData.surfaceClass - PT_SURFACE_PLANT));
 	float dynamicReactive = 1.0 - step(0.5, abs(gbufferData.surfaceClass - PT_SURFACE_DYNAMIC));
-	// Emissive payloads are reactive because animation state is not encoded.
+
 	gbufferData.reactive = max(emissiveSurface, max(foliageReactive, max(plantReactive, dynamicReactive))) *
 		(1.0 - transparentSurface);
 	gbufferData.valid = (1.0 - step(0.99999, depthRaw)) * (1.0 - transparentSurface);

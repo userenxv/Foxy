@@ -4,12 +4,9 @@
 #include "/lib/transmission.glsl"
 #include "/lib/voxel/voxel_shape_buffer.glsl"
 
-// Returns the compact descriptor for the exact 1/16-grid block-state shape.
-// A negative result selects full-cell DDA behavior.
 int VoxelShapeDescriptorIndex(const in uint materialId) {
-	// Most occupied cells are ordinary full blocks below the analytic-shape
-	// namespace.  Keep that overwhelmingly common path to one comparison.
-	if (materialId < 10400u) return -1;
+
+if (materialId < 10400u) return -1;
 
 	if (materialId >= 10400u && materialId <= 10439u) {
 		return int(materialId - 10400u);
@@ -26,9 +23,8 @@ int VoxelShapeDescriptorIndex(const in uint materialId) {
 	if (materialId >= 10500u && materialId <= 10515u) {
 		return 94 + int(materialId - 10500u);
 	}
-	// Pane dye IDs share the same 16 connection descriptors.  The direct
-	// range check also avoids repeating the generic transmission classifier.
-	if (materialId >= 10600u && materialId <= 10871u) {
+
+if (materialId >= 10600u && materialId <= 10871u) {
 		return 110 + int(TransmissionPaneConnections(materialId));
 	}
 	if (materialId >= 10900u && materialId <= 10915u) {
@@ -37,9 +33,8 @@ int VoxelShapeDescriptorIndex(const in uint materialId) {
 	if (materialId >= 10920u && materialId <= 10923u) {
 		return 74 + int(materialId - 10920u);
 	}
-	// Vanilla iron bars retain their texture-defined lattice instead of using
-	// the solid pane approximation.
-	if (materialId >= 11000u && materialId <= 11015u) {
+
+if (materialId >= 11000u && materialId <= 11015u) {
 		return 365 + int(materialId - 11000u);
 	}
 	if (materialId >= 11020u && materialId <= 11026u) {
@@ -75,8 +70,6 @@ int VoxelShapeDescriptorIndex(const in uint materialId) {
 	return -1;
 }
 
-// The surface marker is emitted by VoxelGridStoreScene from the actual
-// rendered vertex height. Full-height fluid columns keep the ordinary lava ID.
 const int FOXY_VOXEL_LAVA_SURFACE_DESCRIPTOR = 164;
 const float FOXY_VOXEL_LAVA_SURFACE_HEIGHT = 14.0 / 16.0;
 
@@ -161,8 +154,6 @@ bool VoxelShapeRayBoxClosest(
 	return hitDistance <= segmentEnd + 1.0e-5;
 }
 
-// Exact segment/AABB overlap for transmissive panes. Distance and normal are
-// deliberately omitted because pane hits never terminate the VRTGI path.
 bool VoxelShapeRayBoxAnyHit(
 	const in vec3 localRayOrigin,
 	const in vec3 rayInverseDirection,
@@ -241,7 +232,7 @@ bool VoxelShapeTrace(
 			found = true;
 			hitDistance = candidateDistance;
 			hitNormal = candidateNormal;
-			// No later component can improve a hit at the segment entrance.
+
 			if (hitDistance <= segmentStart + 1.0e-5) return true;
 		}
 	}
@@ -285,5 +276,4 @@ bool VoxelShapeAnyHit(
 }
 
 #endif
-
 

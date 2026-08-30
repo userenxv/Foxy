@@ -5,10 +5,7 @@
 
 #if FOXY_IRRADIANCE_CACHE_ACTIVE == 1
 
-layout(std430, binding = 3) coherent buffer IrradianceFeedback {
-	uint ircActiveCount;
-	uint ircActiveCells[];
-};
+#include "/lib/voxel/irc_dispatch.glsl"
 
 layout(local_size_x = 8, local_size_y = 4, local_size_z = 4) in;
 const ivec3 workGroups = ivec3(16, 32, 32);

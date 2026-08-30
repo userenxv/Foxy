@@ -27,9 +27,7 @@ vec3 VanillaMoonDisk(
 		return vec3(0.0);
 	}
 
-	// The core occupies one quarter of vanilla's 32x32 celestial quad. This
-	// half-angle keeps the native 8x8 surface without its baked halo.
-	const float halfExtent = 0.038;
+const float halfExtent = 0.038;
 	vec2 localUv = vec2(dot(rayDir, tangent), dot(rayDir, bitangent)) / forward;
 	localUv = localUv / (2.0 * halfExtent) + 0.5;
 	if (any(lessThan(localUv, vec2(0.0))) || any(greaterThanEqual(localUv, vec2(1.0)))) {

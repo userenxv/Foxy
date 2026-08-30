@@ -30,7 +30,6 @@ float MiePhase(const in float mu, const in float g) {
 	return (1.0 - gg) / (4.0 * PI * pow(denom, 1.5));
 }
 
-// Finite solar source profile with a soft limb and monotonic aureole.
 float SunAngularSourceProfile(const in float nu, const in float radius) {
 	float radiusSafe = max(radius, 1.0e-4);
 	float viewCosine = clamp(nu, -1.0, 1.0);
@@ -138,7 +137,7 @@ float SkyTimeSunAltitudeFloor() {
 }
 
 float SkySunsetRedAmount(const in float sunAltitude) {
-	// Solar chroma follows geometric altitude, not clock time.
+
 	return Saturate(1.0 - smoothstep(-0.010, 0.070, sunAltitude));
 }
 
@@ -179,7 +178,6 @@ vec3 SkyWarpViewRay(const in vec3 viewRay, const in vec3 up) {
 	return normalize(mix(viewRay, warped, AtmosphereStyleWarp()));
 }
 
-// Lower sky uses the same-azimuth tangent atmosphere as one fog field.
 vec3 SkyHorizonFogRay(const in vec3 viewRay, const in vec3 up) {
 	float viewUp = dot(viewRay, up);
 	if (viewUp >= 0.0) {
@@ -332,8 +330,7 @@ vec3 SkyApplyAppearance(
 		: sky * vec3(1.08, 1.02, 0.88);
 	sky = mix(sky, SkyPreserveLuminance(sky, blueTint), blueAmount);
 
-	// Atmospheric transmittance exclusively owns sunset tint.
-	return max(sky, vec3(0.0));
+return max(sky, vec3(0.0));
 }
 
 vec3 AtmosphereScatteringV3(
@@ -362,7 +359,7 @@ vec3 AtmosphereScatteringV3(
 	atmosphereView = SkyWarpViewRay(atmosphereView, up);
 	vec3 viewRay = atmosphereView;
 	float viewUp = dot(viewRay, up);
-	// Lower-sky phase uses the real view direction, not the flattened fog ray.
+
 	vec3 phaseView = geometricView;
 	float phaseMu = clamp(dot(phaseView, sunRay), -1.0, 1.0);
 	float moonPhaseMu = clamp(dot(phaseView, moonRay), -1.0, 1.0);
@@ -469,7 +466,7 @@ vec3 SkyRefractedSunDirection(
 	if (altitudeDegrees > 85.0) {
 		return sunDir;
 	}
-	// Clamp Bennett refraction below its -1 degree validity limit.
+
 	float refractionAltitude = max(altitudeDegrees, -1.0);
 	float denominator = tan(radians(refractionAltitude + 10.3 / (refractionAltitude + 5.11)));
 	float refractionDegrees = max(1.02 / max(denominator, 0.05) / 60.0, 0.0);
@@ -499,10 +496,10 @@ vec3 SunMoonDisks(
 	vec3 apparentSunDir = SkyRefractedSunDirection(geometricSunDir, up, geometricSunAltitude);
 	float apparentSunAltitude = clamp(dot(apparentSunDir, up), -1.0, 1.0);
 	float sunDot = dot(rayDir, apparentSunDir);
-	// Solar disc, atmospheric aureole, and post bloom have separate ownership.
+
 	const float sunAngularRadius = FOXY_SUN_ANGULAR_RADIUS;
 	float sunProfile = SunAngularSourceProfile(sunDot, sunAngularRadius) * sunHorizonClip;
-	// Disc and aureole profiles remain monotonic and use fixed angular radii.
+
 	const float aureoleAngularRadius = FOXY_SUN_ANGULAR_RADIUS * 1.35;
 	float sunCosine = cos(sunAngularRadius);
 	float aureoleCosine = cos(aureoleAngularRadius);

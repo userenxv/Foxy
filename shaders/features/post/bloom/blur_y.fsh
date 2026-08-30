@@ -1,36 +1,36 @@
 #include "/lib/settings.glsl"
 #include "/lib/math.glsl"
 
+#if FOXY_BLOOM_STRENGTH > 0
 uniform sampler2D colortex4;
+uniform sampler2D colortex10;
 uniform float viewWidth;
 uniform float viewHeight;
+#endif
 layout(rg16f) uniform writeonly image2D colorimg9;
 
 varying vec2 texcoord;
 varying float finalVertexExposure;
 
-#include "/lib/sr.glsl"
+#if FOXY_BLOOM_STRENGTH > 0
+	#include "/lib/sr.glsl"
 
-vec3 BloomBlurSource(const in vec2 uv) {
-	#if FOXY_TAAU_ACTIVE == 1
-		return max(texture2D(colortex4, clamp(uv, vec2(0.0), vec2(1.0))).rgb, vec3(0.0));
-	#else
-		return max(texture2D(colortex4, SrPresentationUv(uv)).rgb, vec3(0.0));
-	#endif
-}
+#include "/features/post/bloom/gaussian.glsl"
+#endif
 
 void main() {
-	vec2 px = vec2(0.0, SrFullPixelSize().y * 4.0);
-	vec3 bloom = BloomBlurSource(texcoord) * 0.20;
-	bloom += BloomBlurSource(texcoord + px * 1.5) * 0.18;
-	bloom += BloomBlurSource(texcoord - px * 1.5) * 0.18;
-	bloom += BloomBlurSource(texcoord + px * 3.5) * 0.12;
-	bloom += BloomBlurSource(texcoord - px * 3.5) * 0.12;
-	bloom += BloomBlurSource(texcoord + px * 6.5) * 0.07;
-	bloom += BloomBlurSource(texcoord - px * 6.5) * 0.07;
-	bloom += BloomBlurSource(texcoord + px * 10.0) * 0.03;
-	bloom += BloomBlurSource(texcoord - px * 10.0) * 0.03;
-	gl_FragData[0] = vec4(max(bloom, vec3(0.0)), 1.0);
+	#if FOXY_BLOOM_STRENGTH > 0
+		vec2 bloomSize = vec2(max(textureSize(colortex4, 0), ivec2(1)));
+		vec2 axis = vec2(0.0, 1.0 / bloomSize.y);
+		vec3 mediumBloom = BloomGaussian65(colortex4, texcoord, axis);
+		vec3 wideBloom = BloomGaussian193(colortex10, texcoord, axis);
+		vec3 bloom = mediumBloom * 0.28 + wideBloom * 0.72;
+		gl_FragData[0] = vec4(max(bloom, vec3(0.0)), 1.0);
+	#else
+
+		if (any(notEqual(ivec2(gl_FragCoord.xy), ivec2(0)))) discard;
+		gl_FragData[0] = vec4(0.0);
+	#endif
 	if (all(equal(ivec2(gl_FragCoord.xy), ivec2(0)))) {
 		imageStore(colorimg9, ivec2(0), vec4(finalVertexExposure, -0.875, 0.0, 0.0));
 	}

@@ -37,7 +37,6 @@ vec3 RoughWaterReflectionSample(const in vec2 uv, const in vec2 rayUvDelta, cons
 	return mix(center, center * 0.50 + along * 0.30 + across * 0.20, r);
 }
 
-
 RaySignal WaterReflectionMakeRaySignal(const in WaterReflectionSignal signal) {
 	return RaySignalMake(
 		signal.color,

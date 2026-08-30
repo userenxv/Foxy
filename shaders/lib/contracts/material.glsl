@@ -1,12 +1,9 @@
 #ifndef FOXY_CONTRACT_MATERIAL_GLSL
 #define FOXY_CONTRACT_MATERIAL_GLSL
 
-// colortex2 is the PT material packet while the ray pipeline is active.  The
-// high byte of its packed blue/class word is reserved for this explicit water
-// packet; ordinary PT surface classes are 0..7 and cannot collide with it.
 const float FOXY_MATERIAL_WATER_SENTINEL = 1.0;
 const float FOXY_MATERIAL_WATER_GLINT_MAX = 192.0;
-const float FOXY_MATERIAL_WATER_GLINT_LOG_RANGE = 7.59245703727; // log2(1 + 192)
+const float FOXY_MATERIAL_WATER_GLINT_LOG_RANGE = 7.59245703727;
 const float FOXY_MATERIAL_GLASS_SENTINEL = 0.996;
 
 vec2 MaterialEncodeWaterNormal(const in vec3 inputNormal) {
@@ -39,9 +36,8 @@ float MaterialIsGlass(const in vec4 packet) {
 }
 
 float MaterialPackGlassTransmission(const in vec3 transmission) {
-	// colortex2 is RGBA16, so one normalized channel can carry RGB555 without
-	// losing the flat glass normal that the lightweight optical resolve needs.
-	vec3 encoded = floor(clamp(transmission, vec3(0.0), vec3(1.0)) * 31.0 + 0.5);
+
+vec3 encoded = floor(clamp(transmission, vec3(0.0), vec3(1.0)) * 31.0 + 0.5);
 	return (encoded.r * 1024.0 + encoded.g * 32.0 + encoded.b) * (1.0 / 32767.0);
 }
 
@@ -78,9 +74,8 @@ vec4 MaterialWaterPacket(
 	const in float sunGlintSignal
 ) {
 	vec2 encodedNormal = MaterialEncodeWaterNormal(normalView);
-	// colortex2 can be normalized on some backends.  Keep the water payload
-	// portable by fitting normal AA and HDR solar surface energy into one byte.
-	float aaBucket = floor(clamp(normalAaReduction, 0.0, 1.0) * 3.0 + 0.5);
+
+float aaBucket = floor(clamp(normalAaReduction, 0.0, 1.0) * 3.0 + 0.5);
 	float glintEncoded = log2(1.0 + clamp(sunGlintSignal, 0.0, FOXY_MATERIAL_WATER_GLINT_MAX)) / FOXY_MATERIAL_WATER_GLINT_LOG_RANGE;
 	float glintBucket = floor(clamp(glintEncoded, 0.0, 1.0) * 63.0 + 0.5);
 	float packedAux = (glintBucket * 4.0 + aaBucket) / 255.0;

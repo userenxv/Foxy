@@ -98,7 +98,7 @@ vec3 WaterSunGlint(
 	float oneMinusVoH2 = oneMinusVoH * oneMinusVoH;
 	float fresnel = 0.020 + 0.980 * oneMinusVoH2 * oneMinusVoH2 * oneMinusVoH;
 	float aa = Saturate(normalAaReduction);
-	// Finite solar radius sets the microfacet-lobe floor; waves supply glitter direction.
+
 	float angularFloor = max(tan(max(FOXY_PBR_LIGHT_ANGULAR_RADIUS, 0.0)), 0.002);
 	float slope = max(mix(0.008, 0.038, aa), angularFloor);
 	float lobe = min(WaterGgxSunLobe(NoH, NoV, NoL, slope, fresnel), 28.0);
@@ -118,7 +118,6 @@ vec2 WaterRotate(const in vec2 p, const in float a) {
 float WaterTime(const in float frameTimeCounter) {
 	return frameTimeCounter * FOXY_WATER_WAVE_SPEED * 1.65;
 }
-
 
 float WaterSpectrumTextureWave(const in vec2 p, const in vec2 scale, const in float angle, const in vec2 scroll, const in float t, const in float crestBias) {
 	vec2 q = WaterRotate(p, angle) / scale + scroll * t;
@@ -188,7 +187,6 @@ float WaterSpectrumHeightAt(const in vec2 position, const in float frameTimeCoun
 	return WaterSpectrumHeightRaw(position, frameTimeCounter, detail ? 0.92 : 0.0, detail ? 0.72 : 0.0);
 }
 
-
 float WaterV5AtlasFrame(const in vec2 uv, const in float frameIndex) {
 	float tileX = mod(frameIndex, 8.0);
 	float tileY = floor(frameIndex * 0.125);
@@ -226,7 +224,7 @@ float WaterSpectrumCaustics(const in vec3 worldPos, const in vec3 sunWorldDir, c
 
 	vec2 causticUv = lightProjected / 4.75 + vec2(0.5);
 	float field = WaterV5AtlasCaustic(causticUv, frameTimeCounter);
-	// Caustic atlas calibration: 0.11 median, 0.25 at the 99th percentile.
+
 	field = smoothstep(0.085, 0.265, field);
 	float intensity = mix(1.40, 2.80, Saturate(FOXY_WATER_WAVE_STRENGTH));
 	float caustic = 1.0 + field * intensity * sunLift * depthFade;
@@ -240,7 +238,6 @@ float WaterCaustics(const in vec3 worldPos, const in vec3 sunWorldDir, const in 
 	return 1.0;
 #endif
 }
-
 
 float WaterLargeHeight(const in vec2 p, const in float frameTimeCounter) {
 #if FOXY_WATER_SPECTRUM_WAVES == 1
@@ -295,7 +292,7 @@ vec2 WaterSurfaceCoordPlayer(
 	const in vec3 baseNormalPlayer,
 	const in vec3 worldPos
 ) {
-	// Fluid tops use world XZ; waterfall sheets use their vertical tangent plane.
+
 	if (abs(baseNormalPlayer.y) < 0.25) {
 		vec3 sideTangent = normalize(cross(vec3(0.0, 1.0, 0.0), baseNormalPlayer));
 		return vec2(dot(worldPos, sideTangent), worldPos.y);
@@ -333,8 +330,7 @@ vec3 WaterDetailNormalPlayer(
 		);
 	}
 
-	// Add wave slope to sloped fluid tops without replacing geometric slope.
-	float facingSign = mix(-1.0, 1.0, step(0.0, geometricNormal.y));
+float facingSign = mix(-1.0, 1.0, step(0.0, geometricNormal.y));
 	vec3 upwardNormal = geometricNormal * facingSign;
 	vec2 geometricSlope = -upwardNormal.xz / max(upwardNormal.y, 0.10);
 	vec2 combinedSlope = geometricSlope + waveSlope;

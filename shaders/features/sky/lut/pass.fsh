@@ -51,9 +51,8 @@ void main() {
 		if (cacheRow < 1.0) {
 			sky = SkyLutUpperHemisphereFluence(colortex7);
 		} else if (cacheRow < 2.0) {
-			// Cache the globally constant direct-sun spectrum once per frame so
-			// half-resolution GI pixels do not repeat atmospheric transmittance.
-			vec3 stableSun;
+
+vec3 stableSun;
 			vec3 stableMoon;
 			StableSunMoonViewDirs(
 				sunPosition,

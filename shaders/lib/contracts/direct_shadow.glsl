@@ -1,9 +1,6 @@
 #ifndef FOXY_CONTRACT_DIRECT_SHADOW_GLSL
 #define FOXY_CONTRACT_DIRECT_SHADOW_GLSL
 
-// Opaque direct-light payload carried to the completed-depth stage. RGB is the
-// exact final-space contribution that may still be removed by a farther
-// blocker; alpha is the visibility already applied by the native shadow map.
 vec4 DirectShadowPack(
 	const in vec3 removableDirect,
 	const in float nativeVisibility

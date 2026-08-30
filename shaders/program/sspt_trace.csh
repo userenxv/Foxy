@@ -3,7 +3,7 @@
 #ifndef FOXY_SSPT_TRACE_LIBRARY_ONLY
 #if FOXY_VOXEL_GI_ACTIVE == 1
 	#if defined MC_GL_VENDOR_AMD
-		// RDNA executes wave32; keep a full 64-thread tile for predictable occupancy.
+
 		layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 	#else
 		layout(local_size_x = 8, local_size_y = 4, local_size_z = 1) in;
@@ -56,19 +56,19 @@ uniform float viewHeight;
 uniform vec2 temporalJitter;
 uniform vec2 previousTemporalJitter;
 uniform int frameCounter;
-#if FOXY_VOXEL_GI_ACTIVE == 1
-uniform vec3 sunPosition;
-uniform vec3 moonPosition;
-uniform vec3 upPosition;
-uniform vec3 shadowLightPosition;
-uniform mat4 shadowModelView;
-uniform mat4 shadowProjection;
-uniform sampler2DShadow shadowtex1;
+	#if FOXY_VOXEL_TRACING == 1 || defined(FOXY_SSPT_TRACE_LIBRARY_ONLY)
+		uniform vec3 sunPosition;
+		uniform vec3 moonPosition;
+		uniform vec3 upPosition;
+		uniform vec3 shadowLightPosition;
+		uniform mat4 shadowModelView;
+		uniform mat4 shadowProjection;
+		uniform sampler2DShadow shadowtex1;
 #endif
 #endif
 
 #include "/lib/math.glsl"
-#if FOXY_VOXEL_GI_ACTIVE == 1
+#if FOXY_VOXEL_GI_ACTIVE == 1 && (FOXY_VOXEL_TRACING == 1 || defined(FOXY_SSPT_TRACE_LIBRARY_ONLY))
 	#ifndef FOXY_SSPT_TRACE_LIBRARY_ONLY
 		#include "/lib/celestial.glsl"
 		#include "/lib/shadow.glsl"
@@ -77,7 +77,7 @@ uniform sampler2DShadow shadowtex1;
 	#include "/lib/trace_common.glsl"
 	#include "/lib/contracts/sky_lut.glsl"
 	#include "/lib/dimension_sky.glsl"
-#if FOXY_VOXEL_GI_ACTIVE == 1
+#if FOXY_VOXEL_GI_ACTIVE == 1 && (FOXY_VOXEL_TRACING == 1 || defined(FOXY_SSPT_TRACE_LIBRARY_ONLY))
 	#include "/lib/voxel/vrtgi_fallback.glsl"
 #endif
 #ifndef FOXY_SSPT_TRACE_LIBRARY_ONLY
@@ -152,7 +152,7 @@ vec2 SsptTemporalSample(const in ivec2 pixel) {
 	ivec2 spatialPixel = ivec2(pixel.x % spatialPeriod, pixel.y % spatialPeriod);
 	int temporalSlice = safeFrame % temporalPeriod;
 	int temporalCycle = safeFrame / temporalPeriod;
-	// STBN must advance in Z; a fixed slice destroys its temporal spectrum.
+
 	vec2 stbnSample = texelFetch(
 		cloudStbnVec2,
 		ivec3(spatialPixel, temporalSlice),
@@ -162,8 +162,8 @@ vec2 SsptTemporalSample(const in ivec2 pixel) {
 	return fract(stbnSample + temporalStep * float(temporalCycle));
 }
 
-#if FOXY_VOXEL_GI_ACTIVE == 1
-// Continuation bounces require an independent random stream.
+#if FOXY_VOXEL_TRACING == 1
+
 vec2 SsptIndependentBounceSample(
 	const in ivec2 pixel,
 	const in int sampleIndex,
@@ -191,7 +191,6 @@ vec2 SsptSkyLutUv(const in vec3 worldDirection) {
 	return SkyLutPhysicalUv(vec2(fract(azimuth / (2.0 * PI) + 0.5), altitudeParameter * 0.5 + 0.5));
 }
 
-// The lightmap gates escaped sky rays; it is not an irradiance source.
 float SsptSkyLeakVisibility(const in float rawSkyLight) {
 	float skyLight = Saturate(rawSkyLight * 1.07);
 	float curved = 1.0 - pow(max(1.0 - skyLight * 0.9, 0.0), 0.7);
@@ -200,7 +199,7 @@ float SsptSkyLeakVisibility(const in float rawSkyLight) {
 }
 
 #ifndef FOXY_SSPT_TRACE_LIBRARY_ONLY
-// Sky LUT radiance is valid only for upper-hemisphere terminal escapes.
+
 vec3 SsptTerminalSkyRadiance(
 	const in vec3 worldDirection,
 	const in float receiverSkyVisibility,
@@ -237,57 +236,60 @@ vec3 SsptReconstructEmission(const in RayHit hit) {
 }
 
 vec3 SsptScreenHitRadiance(const in ivec2 hitPixel) {
-	// The raster pass exclusively owns direct lighting in SSGI.
+
 	return DecodeSceneColor(texelFetch(colortex0, hitPixel, 0).rgb);
 }
 
 #endif
 
 float SsptSignalStorageScale() {
-	#if FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI || FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
-		// Hybrid history shares VRTGI/IRC's FP16 storage scale.
+	#if FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
+
+return clamp(FOXY_SSPT_BOUNCE_BRIGHTNESS, 0.0, 15.0) / 8.0;
+	#elif FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI
+
 		return 1.0 / 8.0;
 	#else
 		return 1.0;
 	#endif
 }
 
-#if FOXY_VOXEL_GI_ACTIVE == 1
-// VXGI history uses 1/8 scene-radiance scale for FP16 headroom.
+#if FOXY_VOXEL_GI_ACTIVE == 1 && (FOXY_VOXEL_TRACING == 1 || defined(FOXY_SSPT_TRACE_LIBRARY_ONLY))
+
 const float FOXY_VXGI_STORAGE_SCALE = 1.0 / 8.0;
 
 const vec3 FOXY_VXGI_DYE_ALBEDO[16] = vec3[16](
-	vec3(0.682, 0.720, 0.714), // white
-	vec3(0.243, 0.243, 0.223), // light gray
-	vec3(0.045, 0.056, 0.061), // gray
-	vec3(0.009, 0.009, 0.011), // black
-	vec3(0.163, 0.064, 0.023), // brown
-	vec3(0.313, 0.020, 0.014), // red
-	vec3(0.682, 0.155, 0.009), // orange
-	vec3(0.714, 0.494, 0.034), // yellow
-	vec3(0.155, 0.411, 0.010), // lime
-	vec3(0.081, 0.145, 0.006), // green
-	vec3(0.006, 0.239, 0.239), // cyan
-	vec3(0.030, 0.325, 0.505), // light blue
-	vec3(0.033, 0.042, 0.289), // blue
-	vec3(0.180, 0.023, 0.345), // purple
-	vec3(0.411, 0.055, 0.366), // magenta
-	vec3(0.645, 0.186, 0.289)  // pink
+	vec3(0.682, 0.720, 0.714),
+	vec3(0.243, 0.243, 0.223),
+	vec3(0.045, 0.056, 0.061),
+	vec3(0.009, 0.009, 0.011),
+	vec3(0.163, 0.064, 0.023),
+	vec3(0.313, 0.020, 0.014),
+	vec3(0.682, 0.155, 0.009),
+	vec3(0.714, 0.494, 0.034),
+	vec3(0.155, 0.411, 0.010),
+	vec3(0.081, 0.145, 0.006),
+	vec3(0.006, 0.239, 0.239),
+	vec3(0.030, 0.325, 0.505),
+	vec3(0.033, 0.042, 0.289),
+	vec3(0.180, 0.023, 0.345),
+	vec3(0.411, 0.055, 0.366),
+	vec3(0.645, 0.186, 0.289)
 );
 
 const vec3 FOXY_VXGI_MINERAL_ALBEDO[12] = vec3[12](
-	vec3(0.494, 0.494, 0.494), // iron
-	vec3(0.682, 0.494, 0.048), // gold
-	vec3(0.416, 0.128, 0.061), // copper
-	vec3(0.286, 0.161, 0.096), // exposed copper
-	vec3(0.100, 0.253, 0.169), // weathered copper
-	vec3(0.051, 0.150, 0.117), // oxidized copper
-	vec3(0.042, 0.030, 0.031), // netherite
-	vec3(0.088, 0.610, 0.559), // diamond
-	vec3(0.019, 0.440, 0.119), // emerald
-	vec3(0.009, 0.040, 0.189), // lapis
-	vec3(0.233, 0.077, 0.407), // amethyst
-	vec3(0.575, 0.548, 0.505)  // quartz
+	vec3(0.494, 0.494, 0.494),
+	vec3(0.682, 0.494, 0.048),
+	vec3(0.416, 0.128, 0.061),
+	vec3(0.286, 0.161, 0.096),
+	vec3(0.100, 0.253, 0.169),
+	vec3(0.051, 0.150, 0.117),
+	vec3(0.042, 0.030, 0.031),
+	vec3(0.088, 0.610, 0.559),
+	vec3(0.019, 0.440, 0.119),
+	vec3(0.009, 0.040, 0.189),
+	vec3(0.233, 0.077, 0.407),
+	vec3(0.575, 0.548, 0.505)
 );
 
 vec3 VoxelGiAlbedo(const in uint payload) {
@@ -337,7 +339,7 @@ vec3 VoxelGiAlbedo(const in uint payload) {
 	if (materialId == 10181u) return vec3(0.57, 0.30, 0.62);
 	if (materialId == 10182u) return vec3(0.25, 0.58, 0.36);
 	if (EmissionLavaMaterial(float(materialId))) {
-		// Lava is emissive-only and terminates the path.
+
 		return vec3(0.0);
 	}
 	if (materialId == 10184u || materialId == 10185u) return vec3(0.42, 0.18, 0.055);
@@ -355,7 +357,7 @@ vec3 VoxelGiAlbedo(const in uint payload) {
 }
 
 bool VoxelGiStoredFaceNormalMaterial(const in uint materialId) {
-	// Thin and cutout geometry uses its stored face normal instead of the cell boundary.
+
 	return materialId == 10100u ||
 		(materialId >= 10101u && materialId <= 10103u) ||
 		materialId == 10176u;
@@ -374,7 +376,7 @@ vec3 VoxelGiEmission(const in uint payload) {
 	}
 	vec3 sourceSpectrum = EmissionSpectrum(materialKey);
 	float sourceRadiance = EmissionRadiance(materialKey);
-	// Vanilla light levels are perceptual; source radiance is scene-linear.
+
 	return sourceSpectrum * (sourceRadiance * sourceLevel) *
 		FOXY_VOXEL_GI_EMITTER_BRIGHTNESS *
 		FOXY_VXGI_EMITTER_CALIBRATION;
@@ -395,7 +397,7 @@ float VoxelGiDirectVisibility(
 		0.018,
 		0.180
 	);
-	// Face-centre projection prevents DDA edge hits from crossing shadow texels.
+
 	vec3 faceCenter = floor(gridPosition - hitNormal * 1.0e-4) +
 		vec3(0.5) + hitNormal * 0.5;
 	vec3 scenePosition = faceCenter - fract(cameraPosition) -
@@ -414,7 +416,7 @@ float VoxelGiDirectVisibility(
 	}
 
 	float receiverBias = mix(0.00034, 0.000055, Saturate(lightNoL));
-	// Compute shadow comparisons require explicit LOD; this is a strict visibility gate.
+
 	float shadowVisibility = textureLod(
 		shadowtex1,
 		vec3(shadowCoord.xy, shadowCoord.z - receiverBias),
@@ -433,15 +435,15 @@ vec3 VoxelGiSkyIncomingRadiance(
 	const in vec3 surfaceNormal,
 	const in vec3 neutralSkyMeanRadiance
 ) {
-	// Exact cosine-integral fraction for a constant upper-hemisphere field.
+
 	float skyFacing = Saturate(surfaceNormal.y * 0.5 + 0.5);
 	float skyVisibility = VoxelGiSkyVisibility(rawSkyLight);
 	#if defined(FOXY_DIM_NETHER)
-		// Nether environment radiance is omnidirectional.
+
 		skyFacing = 1.0;
 		skyVisibility = 1.0;
 	#elif defined(FOXY_DIM_END)
-		// The End has directional sky but no vanilla skylight channel.
+
 		skyVisibility = 1.0;
 	#endif
 	return neutralSkyMeanRadiance * skyVisibility * skyFacing *
@@ -484,8 +486,7 @@ vec3 VoxelGiHitRadiance(
 		hitNormal
 	) * localLightScale;
 
-	// Zero skylight vetoes stale or out-of-domain direct-sun samples.
-	if (sunVisibility > 0.0) {
+if (sunVisibility > 0.0) {
 		float sunDomainGate = step(0.5 / 15.0, skyLight);
 		#if defined(FOXY_DIM_END)
 			sunDomainGate = 1.0;
@@ -496,8 +497,7 @@ vec3 VoxelGiHitRadiance(
 			FOXY_VXGI_SUN_CALIBRATION;
 	}
 
-	// Sky is an environment terminal, never voxel emission.
-	radiance += VoxelGiEmission(payload) * localLightScale;
+radiance += VoxelGiEmission(payload) * localLightScale;
 	return max(radiance, vec3(0.0));
 }
 
@@ -547,7 +547,7 @@ void VoxelGiEmitterPrimitiveCandidate(
 	samplePosition = vec3(emitterCell) + vec3(0.5);
 	float primitiveArea = 1.0;
 	if (emitterSphere) {
-		// Integrate small Lambertian emitters as projected discs.
+
 		vec3 toCenter = samplePosition - receiverPosition;
 		float centerDistanceSquared = dot(toCenter, toCenter);
 		if (centerDistanceSquared <= 1.0e-5 ||
@@ -660,7 +660,6 @@ vec3 VoxelGiSampleEmitterDirect(
 	vec3 selectedIncoming = chooseSecond ? secondIncoming : firstIncoming;
 	float selectedImportance = chooseSecond ? secondImportance : firstImportance;
 	if (selectedImportance <= 1.0e-12) return vec3(0.0);
-
 	vec3 biasedOrigin = receiverPosition + receiverNormal * 0.010;
 	vec3 toLight = selectedPosition - biasedOrigin;
 	float lightDistance = length(toLight);
@@ -695,8 +694,7 @@ vec3 VoxelGiSampleEmitterDirect(
 			all(equal(hitCell, selectedCell)));
 	if (!selectedEmitterVisible) return vec3(0.0);
 
-	// Resample two emitter proposals; only the selected one launches visibility.
-	float reservoirWeight = float(faceCount) * importanceSum /
+float reservoirWeight = float(faceCount) * importanceSum /
 		(2.0 * selectedImportance);
 	return max(selectedIncoming * transmittance * reservoirWeight, vec3(0.0));
 }
@@ -825,7 +823,7 @@ void main() {
 	#if FOXY_IRC_MODE == 1
 		ivec2 ircPixel = ivec2(gl_GlobalInvocationID.xy);
 		if (any(greaterThanEqual(ircPixel, traceSize))) return;
-		// IRC uses a valid zero-radiance trace placeholder to preserve ownership.
+
 		imageStore(img_ptTrace, ircPixel, vec4(0.0));
 		return;
 	#endif
@@ -873,9 +871,8 @@ void main() {
 		originPlayerPos,
 		cameraPosition
 	);
-	// Pure VRTGI owns only its voxel domain. Hybrid mode still gives screen
-	// space a chance outside that domain and falls back only when needed.
-	#if FOXY_SSPT == 0
+
+#if FOXY_SSPT == 0
 	if (voxelTraceWeight <= 1.0e-5) {
 		imageStore(
 			img_ptTrace,
@@ -893,8 +890,9 @@ void main() {
 	float missCount = 0.0;
 	float maximumRejection = 0.0;
 	float ircFallbackCount = 0.0;
-#if FOXY_VOXEL_GI_ACTIVE == 1
-	#if defined(FOXY_DIM_NETHER) || defined(FOXY_DIM_END)
+	vec3 ircEnvironmentFallbackSum = vec3(0.0);
+	#if FOXY_VOXEL_TRACING == 1
+		#if defined(FOXY_DIM_NETHER) || defined(FOXY_DIM_END)
 		vec3 skyUpperHemisphereFluence = DecodeBufferColor(texelFetch(
 			colortex7,
 			SkyUpperHemisphereFluenceTexel(),
@@ -941,7 +939,7 @@ void main() {
 		0
 	).rgb);
 	#if defined(FOXY_DIM_END)
-		// End daylight uses a fixed 60-degree source.
+
 		voxelDirectLightWorldDirection = EndSunWorldDirection();
 		voxelDirectLightAltitude = 0.86602540;
 		voxelDirectLightCanContribute = true;
@@ -953,7 +951,7 @@ void main() {
 
 	for (int sampleIndex = 0; sampleIndex < FOXY_ACTIVE_GI_SPP; sampleIndex++) {
 		float sampleValue = float(sampleIndex);
-		// Stratify cosine radius and azimuth; STBN supplies pixel decorrelation.
+
 		vec2 sampleRotation = vec2(
 			sampleValue / float(FOXY_ACTIVE_GI_SPP),
 			0.61803398875 * sampleValue
@@ -963,9 +961,8 @@ void main() {
 		RayQuery query;
 		query.worldOrigin = cameraPosition + originPlayerPos;
 		query.worldDirection = SsptCosineDirection(primaryGbuffer.worldNormal, randomValue);
-		// Shading normals may tilt a sample below the actual surface. Keep the
-		// cosine sampler, but reject those rays against the geometric hemisphere.
-		if (dot(query.worldDirection, primaryGbuffer.worldGeometricNormal) <= 0.0) {
+
+if (dot(query.worldDirection, primaryGbuffer.worldGeometricNormal) <= 0.0) {
 			#if FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
 				ircFallbackCount += 1.0;
 			#else
@@ -985,10 +982,8 @@ void main() {
 		vec3 fallbackTransmittance = vec3(1.0);
 		#if FOXY_SSPT == 1
 			RayQuery screenQuery = query;
-			// Screen-space tracing is bounded by the projected view, not the
-			// voxel-domain radius. Keep the configured distance as a near-range
-			// floor, while allowing rays to reach the far clip plane outside voxels.
-			screenQuery.maxDistance = max(FOXY_SSPT_MAX_DISTANCE, far);
+
+screenQuery.maxDistance = max(FOXY_SSPT_MAX_DISTANCE, far);
 			ScreenTraceResult screenResult = TraceScreen(
 				screenQuery,
 				primaryPixel,
@@ -1033,9 +1028,8 @@ void main() {
 				maximumRejection = max(maximumRejection, screenResult.rejection);
 				fallbackTransmittance = screenResult.transmittance;
 				#if FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI
-					// A rejected screen ray is unknown, so hybrid mode sends it to
-					// the voxel backend. A clean screen escape remains a sky sample.
-					if (screenResult.terminal > 0.5) {
+
+if (screenResult.terminal > 0.5) {
 						float screenSkyVisibility = SsptSkyLeakVisibility(
 							primaryGbuffer.lightmap.y
 						);
@@ -1051,9 +1045,8 @@ void main() {
 						screenResolved = true;
 					}
 				#elif FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
-					// A non-terminal screen miss is recovered from the irradiance cache.
-					// Terminal sky escapes remain direct SSPT environment samples.
-					if (screenResult.terminal > 0.5) {
+
+if (screenResult.terminal > 0.5) {
 						float screenSkyVisibility = SsptSkyLeakVisibility(
 							primaryGbuffer.lightmap.y
 						);
@@ -1066,10 +1059,24 @@ void main() {
 						screenResolved = true;
 					} else {
 						ircFallbackCount += 1.0;
+						if (screenResult.viewportExit > 0.5) {
+							float screenSkyVisibility = SsptSkyLeakVisibility(
+								primaryGbuffer.lightmap.y
+							);
+							ircEnvironmentFallbackSum += SsptTerminalSkyRadiance(
+								query.worldDirection,
+								screenSkyVisibility,
+								1.0
+							) * screenResult.transmittance * SsptSignalStorageScale();
+						}
 					}
 				#else
-					missCount += screenResult.terminal;
-					if (screenResult.terminal > 0.5) {
+					float environmentEscape = max(
+						screenResult.terminal,
+						screenResult.viewportExit
+					);
+					missCount += environmentEscape;
+					if (environmentEscape > 0.5) {
 						float screenSkyVisibility = SsptSkyLeakVisibility(
 							primaryGbuffer.lightmap.y
 						);
@@ -1086,7 +1093,7 @@ void main() {
 
 		#if FOXY_VOXEL_TRACING == 1
 		if (!screenResolved) {
-			// Bound iterations by the maximum voxel-plane crossings of the segment.
+
 			int distanceBoundedTraceSteps = min(
 				FOXY_VOXEL_GI_TRACE_ITERATIONS,
 				int(ceil(query.maxDistance * 1.75)) + 3
@@ -1129,7 +1136,7 @@ void main() {
 				pathThroughput *= voxelRayTransmittance;
 
 				if (!voxelHit) {
-					// Only domain and distance exits reach the environment.
+
 					#if defined(FOXY_DIM_NETHER)
 						pathRadiance += pathThroughput * neutralSkyMeanRadiance *
 							FOXY_VOXEL_GI_SKY_BRIGHTNESS;
@@ -1271,16 +1278,14 @@ void main() {
 			false,
 			ircDomainWeight,
 			ircConfidence
-		) * (FOXY_IRRADIANCE_CACHE_STRENGTH / 8.0);
+		) * FOXY_IRRADIANCE_CACHE_STRENGTH * SsptSignalStorageScale();
 		float ircValid = ircDomainWeight * step(0.02, ircConfidence);
-		if (ircValid > 0.0) {
-			radianceSum += ircEstimate * ircValid * ircFallbackCount;
-			hitCount += ircFallbackCount * ircValid;
-			missCount += ircFallbackCount * (1.0 - ircValid);
-		} else {
-			missCount += ircFallbackCount;
-		}
+		radianceSum += ircEstimate * ircValid * ircFallbackCount;
+		radianceSum += ircEnvironmentFallbackSum * (1.0 - ircValid);
+		hitCount += ircFallbackCount * ircValid;
+		missCount += ircFallbackCount * (1.0 - ircValid);
 		#else
+		radianceSum += ircEnvironmentFallbackSum;
 		missCount += ircFallbackCount;
 		#endif
 	}

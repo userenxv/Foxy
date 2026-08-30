@@ -114,7 +114,6 @@ float FullscreenExposureEv(const in vec2 uv) {
 	return log2(max(FullscreenExposureLuma(uv), 1.0e-6));
 }
 
-// Nested 4x4 strata feed a deterministic 40%-90% percentile exposure meter.
 const vec2 EXPOSURE_SAMPLE_UV[32] = vec2[32](
 	vec2(0.1250, 0.1250), vec2(0.3750, 0.1250), vec2(0.6250, 0.1250), vec2(0.8750, 0.1250),
 	vec2(0.1250, 0.3750), vec2(0.3750, 0.3750), vec2(0.6250, 0.3750), vec2(0.8750, 0.3750),
@@ -132,8 +131,7 @@ float FullscreenPercentileMeterEv() {
 		sampleEv[i] = FullscreenExposureEv(EXPOSURE_SAMPLE_UV[i]);
 	}
 
-	// Fixed-size compile-time-bounded bitonic network.
-	for (int sequence = 2; sequence <= 32; sequence *= 2) {
+for (int sequence = 2; sequence <= 32; sequence *= 2) {
 		for (int stride = sequence / 2; stride > 0; stride /= 2) {
 			for (int i = 0; i < 32; ++i) {
 				int partner = i ^ stride;

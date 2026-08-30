@@ -427,7 +427,6 @@ vec4 CloudResolveCbr(
 	return resolved;
 }
 
-// Reconstruct sky only on the depth-clear background.
 vec3 CloudCompositeSky(const in vec2 uv, out vec3 celestialOut) {
 	vec3 viewDir = CloudScreenViewRay(uv);
 	vec3 worldDir = normalize(mat3(gbufferModelViewInverse) * viewDir);
@@ -459,7 +458,7 @@ void main() {
 	vec2 renderTexcoord = SrSceneSampleUv(texcoord);
 	vec4 scene = texture2D(colortex0, renderTexcoord);
 	scene.rgb = DecodeSceneColor(scene.rgb);
-	// Endpoint ownership uses jittered raster UV; cloud history uses stable view UV.
+
 	vec2 opaqueRasterUv = texcoord;
 	#if FOXY_TEMPORAL_JITTER_ACTIVE == 1
 		opaqueRasterUv += temporalJitter * 0.5;
@@ -485,7 +484,7 @@ void main() {
 		depth,
 		gbufferProjectionInverse
 	);
-	// Resolve Voxy endpoint ownership before testing the vanilla depth-clear sky.
+
 	vec3 skyCelestial = vec3(0.0);
 	if (EndpointValid(opaqueEndpoint) < 0.5) {
 		scene.rgb = CloudCompositeSky(texcoord, skyCelestial);
@@ -520,7 +519,7 @@ void main() {
 		cloudLayer = vec4(displayCloud, visibleCloud.a);
 		if (cloudVisible > 0.5) {
 			layerEndpoint = cloudEndpoint;
-			// Solar transmittance uses a longer optical path than camera-ray coverage.
+
 			if (EndpointValid(opaqueEndpoint) < 0.5) {
 				float celestialTransmittance = pow(max(1.0 - visibleCloud.a, 0.0), 4.0);
 				scene.rgb -= skyCelestial *
@@ -529,8 +528,7 @@ void main() {
 		}
 	#endif
 
-	// Current endpoints use the packed resource domain; composite5 republishes them.
-	StoreOpaqueEndpoint(renderTexcoord, EndpointPack(opaqueEndpoint));
+StoreOpaqueEndpoint(renderTexcoord, EndpointPack(opaqueEndpoint));
 	StoreCloudEndpoint(renderTexcoord, EndpointPack(layerEndpoint));
 	StoreCloudLayer(renderTexcoord, cloudLayer);
 	CloudWriteComposite(

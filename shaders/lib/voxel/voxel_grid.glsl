@@ -4,14 +4,6 @@
 #include "/lib/emissive.glsl"
 #include "/lib/transmission.glsl"
 
-// One uint per one-block cell. The selected VRTGI range controls the cubic
-// domain while preserving one Minecraft block per voxel.
-// 31      occupied
-// 27..30  atomic selection level (block light, or source level for emitters)
-// 24..26  dominant lit-face axis normal
-// 20..23  sky light
-// 16..19  source emission level
-//  0..15  Iris material ID
 const int VOXEL_GRID_SIZE = FOXY_VOXEL_GRID_SIZE;
 const uint VOXEL_GRID_COUNT = FOXY_VOXEL_GRID_COUNT;
 const uint VOXEL_OCCUPIED_BIT = 0x80000000u;
@@ -25,15 +17,9 @@ const uint FOXY_VOXEL_NORMAL_SHIFT = 24u;
 const uint FOXY_VOXEL_SKY_LIGHT_SHIFT = 20u;
 const uint FOXY_VOXEL_EMISSION_SHIFT = 16u;
 
-// Internal payload ID for a rendered lava surface below the block boundary.
-// It is generated from geometry at voxel-write time; the raster material map
-// remains unchanged.
 const uint FOXY_VOXEL_LAVA_MATERIAL = 10183u;
 const uint FOXY_VOXEL_LAVA_SURFACE_MATERIAL = 10198u;
 
-// Three compact occupancy bitsets cover aligned 2^3, 4^3 and 8^3 regions.
-// Word zero stores the number of occupied 8^3 regions for the dense-scene
-// fallback. Each level is sized from the active cubic voxel domain.
 const uint FOXY_VOXEL_HIERARCHY_LEVEL2_SIDE =
 	uint(VOXEL_GRID_SIZE >> 1);
 const uint FOXY_VOXEL_HIERARCHY_LEVEL4_SIDE =
@@ -88,9 +74,7 @@ layout(std430, binding = 5) readonly buffer VoxelHierarchyBuffer {
 #endif
 
 #if FOXY_IRRADIANCE_CACHE_ACTIVE == 1
-// The cache remains a 128^3 camera-centered window inside the larger tracing
-// domain. Emitter faces outside that window cannot affect its direct-light
-// estimator and are intentionally not stored.
+
 const int FOXY_VOXEL_IRC_WINDOW_SIZE = 128;
 const ivec3 FOXY_VOXEL_IRC_WINDOW_OFFSET = ivec3(
 	(VOXEL_GRID_SIZE - FOXY_VOXEL_IRC_WINDOW_SIZE) / 2
@@ -140,24 +124,19 @@ bool VoxelGridOccupied(const in uint payload) {
 	return (payload & VOXEL_OCCUPIED_BIT) != 0u;
 }
 
-// Cache interpolation needs the air volume immediately in front of a receiver,
-// not a ray-traversal obstacle. Glass remains occupied for VRTGI traversal but
-// is transparent to the IRC surface-topology classifier.
 bool VoxelGridTopologyOccupied(const in uint payload) {
 	return VoxelGridOccupied(payload) &&
 		!TransmissionIsGlassUint(payload & VOXEL_MATERIAL_MASK);
 }
 
 bool VoxelThinPlantMaterial(const in uint materialId) {
-	// Crossed-quad plants have negligible geometric volume and must not become
-	// solid full-cell occluders in the voxel RT representation.
-	return materialId >= 10101u && materialId <= 10103u;
+
+return materialId >= 10101u && materialId <= 10103u;
 }
 
 bool VoxelExcludedMaterial(const in uint materialId) {
-	// Crossed-quad plants are omitted because their raster alpha geometry has no
-	// block volume. Small light sources use the analytic sphere path below.
-	return VoxelThinPlantMaterial(materialId);
+
+return VoxelThinPlantMaterial(materialId);
 }
 
 uint VoxelMaterialForGeometry(
@@ -236,9 +215,8 @@ uint VoxelEncodeAxisNormal(const in vec3 inputNormal) {
 	if (max(axisWeight.x, max(axisWeight.y, axisWeight.z)) < 1.0e-5) {
 		return 0u;
 	}
-	// Larger codes win atomicMax ties. +Y is deliberately last so equally lit
-	// sky-exposed cube faces retain their upward face deterministically.
-	if (axisWeight.y >= axisWeight.x && axisWeight.y >= axisWeight.z) {
+
+if (axisWeight.y >= axisWeight.x && axisWeight.y >= axisWeight.z) {
 		return inputNormal.y >= 0.0 ? 6u : 1u;
 	}
 	if (axisWeight.x >= axisWeight.z) {
@@ -265,7 +243,6 @@ uint VoxelGridLoad(const in ivec3 cell) {
 	return voxelGridData[VoxelGridIndex(cell)];
 }
 
-// Use only after VoxelGridInside has validated the cell.
 uint VoxelGridLoadUnchecked(const in ivec3 cell) {
 	return voxelGridData[VoxelGridIndex(cell)];
 }
@@ -435,10 +412,8 @@ void VoxelGridStoreScene(
 		cameraPosition,
 		sceneNormal
 	);
-	// Raster rendering is unaffected; omit only thin alpha geometry from the RT
-	// occupancy map. Analytic light spheres still receive a voxel entry without
-	// becoming hard cell occluders during traversal.
-	if (VoxelExcludedMaterial(storedMaterialId)) return;
+
+if (VoxelExcludedMaterial(storedMaterialId)) return;
 
 	ivec3 cell = ivec3(floor(VoxelGridSceneToGrid(
 		scenePosition,
@@ -475,21 +450,16 @@ void VoxelGridStoreScene(
 		(normalCode << FOXY_VOXEL_NORMAL_SHIFT) |
 		(lightLevels.y << FOXY_VOXEL_SKY_LIGHT_SHIFT) |
 		(storedLightLevel << FOXY_VOXEL_EMISSION_SHIFT);
-	// A deterministic maximum avoids draw-order-dependent data when multiple
-	// terrain classes share a one-block cell. The selection level retains the
-	// strongest incident-light face, or the strongest source for emitter cells.
-	uint voxelIndex = VoxelGridIndex(cell);
+
+uint voxelIndex = VoxelGridIndex(cell);
 	uint previousPayload = atomicMax(voxelGridData[voxelIndex], payload);
-	// A hierarchy cell only needs one mark. The successful empty-to-occupied
-	// transition is unique even when several terrain vertices share this voxel,
-	// so this avoids multiplying hierarchy atomics by vertex density.
-	if (!VoxelGridOccupied(previousPayload)) {
+
+if (!VoxelGridOccupied(previousPayload)) {
 		VoxelHierarchyMark(cell);
 	}
 	#if FOXY_IRRADIANCE_CACHE_ACTIVE == 1
-		// Normal code zero is the one-entry analytic-sphere primitive. Solid and
-		// modded emitters retain one entry per rendered face.
-		if (encodedEmission > 0u) {
+
+if (encodedEmission > 0u) {
 			uint emitterPrimitiveCode = VoxelSphereEmitterMaterial(storedMaterialId)
 				? 0u
 				: normalCode;
@@ -519,9 +489,8 @@ ivec3 VoxelGridCellFromIndex(const in uint index) {
 }
 
 float VoxelGridHashUnitFloat(const in uint value) {
-	// The high 24 bits are exactly representable and therefore strictly [0,1).
-	// Converting all 32 bits can round 0xffffffff to 1.0 on float hardware.
-	return float(value >> 8u) * (1.0 / 16777216.0);
+
+return float(value >> 8u) * (1.0 / 16777216.0);
 }
 #endif
 

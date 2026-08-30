@@ -2,8 +2,6 @@
 #define FOXY_FULLSCREEN_CELESTIAL_CACHE
 #include "/lib/settings.glsl"
 
-// Water stages colortex11; sparse reflections use colortex14. composite8 adds
-// cloud and foreground volume when volumetrics are enabled.
 #if FOXY_MATERIAL_REFLECTIONS == 1
 	/* RENDERTARGETS: 11,14 */
 	const bool colortex11Clear = false;

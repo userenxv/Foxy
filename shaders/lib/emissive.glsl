@@ -1,10 +1,6 @@
 #ifndef FOXY_EMISSIVE_GLSL
 #define FOXY_EMISSIVE_GLSL
 
-// Shared GI light-source contract. Keep this file valid for both the terrain
-// terrain vertex/fragment programs and the 4.30 voxel compute programs.
-// It intentionally does not define visible material emission: that is authored
-// per texel by LabPBR and decoded in surface_pbr.glsl.
 #define FOXY_EMISSIVE_NONE 0.0
 #define FOXY_EMISSIVE_SPHERE 1.0
 #define FOXY_EMISSIVE_SURFACE 2.0
@@ -114,6 +110,7 @@ float EmissionRadiance(const in float materialId) {
 }
 
 float EmissionFallbackLevel(const in float materialId) {
+	if (materialId < 10170.0 || materialId > 10232.0) return 0.0;
 	if (materialId == 10170.0) return 14.0;
 	if (materialId == 10171.0) return 10.0;
 	if (materialId >= 10172.0 && materialId <= 10174.0) return 15.0;

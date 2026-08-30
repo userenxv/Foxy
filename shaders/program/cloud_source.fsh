@@ -100,9 +100,7 @@ void main() {
 		return;
 	#endif
 
-
-
-	ivec2 compactPixel = ivec2(floor(gl_FragCoord.xy));
+ivec2 compactPixel = ivec2(floor(gl_FragCoord.xy));
 	ivec2 renderSize = CloudSourceRenderSize();
 	ivec2 fullPixel = CbrFullPixel(compactPixel, renderSize, frameCounter);
 	int cloudSampleIndex = CbrTemporalSampleIndex(frameCounter);
@@ -124,7 +122,5 @@ void main() {
 	cloudDistance = CloudReferenceDistanceToWorld(cloudDistance);
 	clouds = CloudSourceClamp(clouds);
 
-
-
-	CloudWriteSourceDistance(clouds, cloudDistance);
+CloudWriteSourceDistance(clouds, cloudDistance);
 }

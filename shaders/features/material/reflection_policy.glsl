@@ -20,7 +20,6 @@ vec3 MaterialReflectionAboveSurface(
 	return normalize(direction - 2.0 * min(geometricSide, 0.0) * surfaceNormal);
 }
 
-// Dielectrics trace only when fallback F0 and roughness produce a visible lobe.
 float MaterialReflectionSurfaceEnabled(
 	const in float valid,
 	const in float surfaceClass,
@@ -29,7 +28,7 @@ float MaterialReflectionSurfaceEnabled(
 ) {
 	float smoothness = MaterialReflectionSmoothness(perceptualRoughness);
 	float vegetation = step(0.5, surfaceClass) * (1.0 - step(3.5, surfaceClass));
-	// GBuffer classes 5-7 are emissive payloads.
+
 	float emissive = step(4.5, surfaceClass);
 	float roughness = perceptualRoughness * perceptualRoughness;
 	float dielectricF0 = max(FOXY_PBR_FALLBACK_F0, 0.02);
@@ -45,7 +44,6 @@ float MaterialReflectionSurfaceEnabled(
 	return valid * (1.0 - vegetation) * (1.0 - emissive) * step(0.002, smoothness) * reflectiveMaterial;
 }
 
-// Voxel continuation is limited to visible-energy screen-space misses.
 float MaterialReflectionGlobalEnabled(
 	const in float smoothness,
 	const in float f0Energy,

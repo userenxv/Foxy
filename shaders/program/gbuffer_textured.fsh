@@ -41,7 +41,7 @@ void main() {
 		if (texel.a < 0.10) discard;
 	#endif
 	#ifdef PARTICLES
-		// Exclude the blue vanilla rain-impact particle, not weather streaks.
+
 		if (
 			rainStrength > 0.01 &&
 			baseTexel.r < 0.29 &&
@@ -50,7 +50,7 @@ void main() {
 		) discard;
 	#endif
 	#ifdef WEATHER
-		// Channel ratios remain stable under mip-filtered rain energy loss.
+
 		float weatherEnergy = max(max(baseTexel.r, baseTexel.g), baseTexel.b);
 		float rainChroma = (baseTexel.b - baseTexel.r) / max(weatherEnergy, 1.0e-4);
 		float isRain = step(0.12, rainChroma);

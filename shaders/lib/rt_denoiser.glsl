@@ -30,9 +30,6 @@ float RtDenoiserNormalWeight(const in vec3 centerNormal, const in vec3 sampleNor
 	return smoothstep(0.79, 0.965, dot(centerNormal, sampleNormal));
 }
 
-// Brick/stone normal maps can legitimately vary across one planar surface.
-// At grazing views, keep a small guide floor for matching reprojection planes
-// and surface classes. Plane and depth tests still protect edges.
 float RtDenoiserGrazingSurfaceFloor(
 	const in float sameSurfaceClass,
 	const in float grazingRelax

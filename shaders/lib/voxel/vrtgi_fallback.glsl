@@ -32,14 +32,13 @@ float VrtgiReceiverDomainWeight(
 	return voxelBoxFade * voxelRangeFade;
 }
 
-// Deterministic, direction-independent fallback in VXGI's 1/8 storage scale.
 vec3 VrtgiReceiverFallbackRadiance(
 	const in vec2 lightmap,
 	const in vec3 worldNormal,
 	const in vec3 skyFluence
 ) {
 	float blockLevel = Saturate(lightmap.x);
-	// Missing-cache lightmap fallback is spectrally neutral.
+
 	vec3 radiance = vec3(blockLevel * blockLevel * 0.18) *
 		FOXY_VOXEL_GI_EMITTER_BRIGHTNESS * FOXY_VXGI_EMITTER_CALIBRATION;
 

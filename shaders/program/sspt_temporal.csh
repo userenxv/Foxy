@@ -13,12 +13,12 @@ layout(rgba16f) uniform image2D img_ptHistoryMetaA;
 layout(rgba16f) uniform image2D img_ptHistoryMetaB;
 layout(rg16f) uniform image2D img_ptMomentsA;
 layout(rg16f) uniform image2D img_ptMomentsB;
-// Spatial bootstrap is display-only; history stores only cell-owned observations.
+
 layout(rgba16f) writeonly uniform image2D img_ptFilteredA;
 
 uniform sampler2D colortex2;
 uniform sampler2D depthtex0;
-#if FOXY_VOXEL_GI_ACTIVE == 1
+#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_RAY_MODE != FOXY_RAY_IRC_SSPT
 	uniform sampler2D colortex7;
 #endif
 uniform mat4 gbufferProjectionInverse;
@@ -38,7 +38,7 @@ uniform int frameCounter;
 #include "/lib/sr.glsl"
 #include "/lib/rt_denoiser.glsl"
 #include "/lib/first_person_depth.glsl"
-#if FOXY_VOXEL_GI_ACTIVE == 1
+#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_RAY_MODE != FOXY_RAY_IRC_SSPT
 	#include "/lib/contracts/sky_lut.glsl"
 	#include "/lib/dimension_sky.glsl"
 	#include "/lib/voxel/vrtgi_fallback.glsl"
@@ -59,11 +59,19 @@ uniform int frameCounter;
 shared vec4 ssptCurrentSignal[SSPT_TEMPORAL_TILE_AREA];
 shared vec4 ssptCurrentGuide[SSPT_TEMPORAL_TILE_AREA];
 shared vec4 ssptCurrentMaterialAux[SSPT_TEMPORAL_TILE_AREA];
-#if FOXY_VOXEL_GI_ACTIVE == 1
+#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_RAY_MODE != FOXY_RAY_IRC_SSPT
 	shared vec2 ssptCurrentLightmap[SSPT_TEMPORAL_TILE_AREA];
 #endif
 
-// Per-invocation private cache shared by history and fallback taps.
+float SsptTemporalIrcStorageScale() {
+	#if FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
+		return FOXY_IRRADIANCE_CACHE_STRENGTH *
+			clamp(FOXY_SSPT_BOUNCE_BRIGHTNESS, 0.0, 15.0) / 8.0;
+	#else
+		return FOXY_IRRADIANCE_CACHE_STRENGTH / 8.0;
+	#endif
+}
+
 ivec2 ssptTemporalRenderSize;
 vec2 ssptTemporalTraceToRenderScale;
 vec2 ssptTemporalHistoryToRenderScale;
@@ -207,7 +215,7 @@ void SsptTemporalPreload(const in ivec2 traceSize) {
 		vec4 signal = vec4(0.0);
 		vec4 guide = vec4(0.5, 0.5, 1.0, 0.0);
 		vec4 materialAux = vec4(0.0, 0.0, 0.0, 0.0);
-		#if FOXY_VOXEL_GI_ACTIVE == 1
+		#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_RAY_MODE != FOXY_RAY_IRC_SSPT
 			vec2 sampleLightmap = vec2(0.0);
 		#endif
 		bool traceInside = all(greaterThanEqual(sampleTracePixel, ivec2(0))) && all(lessThan(sampleTracePixel, traceSize));
@@ -241,7 +249,7 @@ void SsptTemporalPreload(const in ivec2 traceSize) {
 				texelFetch(colortex2, samplePrimaryPixel, 0),
 				sampleDepthRaw
 			);
-			// Negative ownership invalidates history across the VRTGI boundary.
+
 			float traceOwnership = sampleTraced
 				? step(-0.99, RtDenoiserTraceState(traceData.a))
 				: 1.0;
@@ -270,14 +278,14 @@ void SsptTemporalPreload(const in ivec2 traceSize) {
 				float(primaryOffsetIndex),
 				sampleGbuffer.valid * traceOwnership
 			);
-			#if FOXY_VOXEL_GI_ACTIVE == 1
+			#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_RAY_MODE != FOXY_RAY_IRC_SSPT
 				sampleLightmap = sampleGbuffer.lightmap;
 			#endif
 		}
 		ssptCurrentSignal[tileIndex] = signal;
 		ssptCurrentGuide[tileIndex] = guide;
 		ssptCurrentMaterialAux[tileIndex] = materialAux;
-		#if FOXY_VOXEL_GI_ACTIVE == 1
+		#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_RAY_MODE != FOXY_RAY_IRC_SSPT
 			ssptCurrentLightmap[tileIndex] = sampleLightmap;
 		#endif
 	}
@@ -542,7 +550,7 @@ void SsptTemporalHistoryTap(
 			ssptTemporalGrazingRelax
 		) * (1.0 - ssptTemporalCurrentVegetation)
 	);
-	// First-person geometry lacks model motion vectors; retain only low-confidence history.
+
 	normalWeight = max(
 		normalWeight,
 		historyClassWeight * ssptTemporalCurrentFirstPerson * 0.24
@@ -699,7 +707,7 @@ void main() {
 	vec4 currentSignal = ssptCurrentSignal[centerIndex];
 	vec4 currentGuide = ssptCurrentGuide[centerIndex];
 	vec4 currentMaterialAux = ssptCurrentMaterialAux[centerIndex];
-	#if FOXY_VOXEL_GI_ACTIVE == 1
+	#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_RAY_MODE != FOXY_RAY_IRC_SSPT
 		vec2 currentLightmap = ssptCurrentLightmap[centerIndex];
 	#endif
 	if (currentMaterialAux.w < 0.5) {
@@ -904,7 +912,7 @@ void main() {
 	#endif
 
 	#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_IRC_MODE == 1
-		// IRC shares VRTGI's outer-surface cache handoff without tracing.
+
 		vec3 ircOnlyRadiance = vec3(0.0);
 		#if FOXY_IRRADIANCE_CACHE_ACTIVE == 1
 			vec3 ircOnlyPlayerPosition = (
@@ -924,13 +932,13 @@ void main() {
 				false,
 				ircOnlyDomainWeight,
 				ircOnlyConfidence
-			) * (FOXY_IRRADIANCE_CACHE_STRENGTH / 8.0);
+			) * SsptTemporalIrcStorageScale();
 			float ircOnlyValid = clamp(
 				ircOnlyDomainWeight * step(0.02, ircOnlyConfidence),
 				0.0,
 				1.0
 			);
-			// Alpha carries cache handoff weight; RGB remains unattenuated.
+
 			ircOnlyRadiance = ircOnlyEstimate;
 		#endif
 		imageStore(img_ptFilteredA, tracePixel, vec4(
@@ -940,8 +948,7 @@ void main() {
 		return;
 	#endif
 
-	// Sampled VRTGI cells own one fresh observation; others forward validated data.
-	vec3 resolvedRadiance = currentRaw;
+vec3 resolvedRadiance = currentRaw;
 	vec2 resolvedMoments = currentRawMoments;
 	float historyAge = max(currentSampled, 1.0);
 	if (historyAccepted > 0.5 && continuitySurface > 0.5) {
@@ -980,7 +987,7 @@ void main() {
 	} else {
 		historyAge = max(currentSampled, 1.0);
 	}
-	// Bound isolated vegetation observations to prevent one-frame flashes.
+
 	if (historyAccepted > 0.5 && continuitySurface > 0.5) {
 		float previousLuma = RtDenoiserLuma(previousHistory.rgb);
 		float resolvedLuma = RtDenoiserLuma(resolvedRadiance);
@@ -1007,8 +1014,7 @@ void main() {
 		vec4(resolvedMoments, 0.0, 0.0)
 	);
 
-	// Validated neighbour history stabilizes display only and never re-enters history.
-	float spatialBootstrapWeight = 1.0 - smoothstep(12.0, 32.0, historyAge);
+float spatialBootstrapWeight = 1.0 - smoothstep(12.0, 32.0, historyAge);
 	vec3 bootstrapSpatialRadiance = resolvedRadiance;
 	vec2 bootstrapSpatialMoments = resolvedMoments;
 	if (spatialBootstrapWeight > 0.0) {
@@ -1041,10 +1047,11 @@ void main() {
 		spatialBootstrapWeight
 	);
 	float bootstrapAge = historyAge;
-	// Deterministic receiver light supplies the bounded cold estimator.
+
 	float coldStartVisibility = smoothstep(1.0, 12.0, historyAge);
 	#if FOXY_VOXEL_GI_ACTIVE == 1
 		if (coldStartVisibility < 0.99999) {
+			#if FOXY_RAY_MODE != FOXY_RAY_IRC_SSPT
 			vec3 fallbackSkyFluence = vec3(0.0);
 			#if !defined(FOXY_DIM_NETHER) && !defined(FOXY_DIM_END)
 				fallbackSkyFluence = DecodeBufferColor(texelFetch(
@@ -1053,11 +1060,14 @@ void main() {
 					0
 				).rgb);
 			#endif
+			#endif
 			vec3 coldStartPlayerPosition = (
 				gbufferModelViewInverse * vec4(currentViewPos, 1.0)
 			).xyz;
 			vec3 coldStartFallback = vec3(0.0);
 			#if FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
+
+coldStartFallback = bootstrapRadiance;
 				#if FOXY_IRRADIANCE_CACHE_ACTIVE == 1
 					vec3 cacheGridPosition = VoxelGridSceneToGrid(
 						coldStartPlayerPosition,
@@ -1065,7 +1075,7 @@ void main() {
 					) + currentNormal * 0.08;
 					float cacheDomainWeight;
 					float cacheConfidence;
-					coldStartFallback = IrcSampleOuterSurfaceMode(
+					vec3 coldStartCache = IrcSampleOuterSurfaceMode(
 						cacheGridPosition,
 						currentNormal,
 						cameraPosition,
@@ -1073,8 +1083,17 @@ void main() {
 						false,
 						cacheDomainWeight,
 						cacheConfidence
-					) * (FOXY_IRRADIANCE_CACHE_STRENGTH / 8.0) *
-						cacheDomainWeight * step(0.02, cacheConfidence);
+					) * SsptTemporalIrcStorageScale();
+					float cacheValid = clamp(
+						cacheDomainWeight * step(0.02, cacheConfidence),
+						0.0,
+						1.0
+					);
+					coldStartFallback = mix(
+						coldStartFallback,
+						coldStartCache,
+						cacheValid
+					);
 				#endif
 			#else
 				coldStartFallback = VrtgiReceiverFallbackRadiance(
@@ -1146,7 +1165,7 @@ void main() {
 				false,
 				cacheDomainWeight,
 				cacheConfidence
-			) * (FOXY_IRRADIANCE_CACHE_STRENGTH / 8.0);
+			) * SsptTemporalIrcStorageScale();
 			cacheBootstrap *= cacheDomainWeight * step(0.02, cacheConfidence);
 			bootstrapRadiance = mix(bootstrapRadiance, cacheEstimate, cacheBootstrap);
 			float cacheLuma = RtDenoiserLuma(cacheEstimate);

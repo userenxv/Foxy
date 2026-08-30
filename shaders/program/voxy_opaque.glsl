@@ -36,9 +36,7 @@ void voxy_emitFragment(VoxyFragmentParameters parameters) {
 	VoxyLighting(parameters.lightMap, normalWorld, sunWorld, moonWorld, rainStrength, ambient, directSun, directMoon, fogColor);
 	vec3 direct = directSun + directMoon;
 	vec3 lit = albedo * max(ambient + direct, vec3(0.00015));
-	// Air fog has one owner.  With volumetrics enabled it is applied after the
-	// cloud layer, together with native and DH terrain; applying it here first
-	// breaks that ordering for Voxy-only pixels.
+
 #if FOXY_VOLUMETRIC_LIGHT == 0
 	lit = VoxyApplyFog(
 		lit,

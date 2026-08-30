@@ -67,10 +67,8 @@ Endpoint VolumeCurrentEndpoint(const in vec2 viewUv) {
 }
 
 vec2 VolumeTemporalNoise(const in vec2 fragCoord) {
-	// Use one spatial blue-noise seed and an exact eight-phase temporal cycle.
-	// The main TAA caps accumulation at eight frames, so every history
-	// window sees the complete stratified ray-offset sequence.
-	vec2 texel = mod(floor(fragCoord), vec2(128.0));
+
+vec2 texel = mod(floor(fragCoord), vec2(128.0));
 	vec3 stbnUv = (vec3(texel, 0.0) + vec3(0.5)) / vec3(128.0, 128.0, 64.0);
 	vec2 spatialSeed = texture3D(cloudStbnVec2, stbnUv).rg;
 	float temporalPhase = mod(float(frameCounter), 8.0) * 0.125;
@@ -180,6 +178,5 @@ void main() {
 		);
 	}
 
-
-	gl_FragData[0] = EncodeVolumeBuffer(vec4(max(volume.scattering, vec3(0.0)), volume.transmittance));
+gl_FragData[0] = EncodeVolumeBuffer(vec4(max(volume.scattering, vec3(0.0)), volume.transmittance));
 }

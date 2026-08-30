@@ -64,7 +64,6 @@ vec3 ReflectionTemporalDecodeColor(const in vec3 color) {
 	return exp2(max(color, vec3(0.0))) - vec3(1.0);
 }
 
-// Pre-exposed companding preserves dark chroma in the packed 12-bit history.
 const float FOXY_REFLECTION_HISTORY_COLOR_PREEXPOSURE = 64.0;
 const float FOXY_REFLECTION_HISTORY_COLOR_LOG_RANGE = 24.0;
 
@@ -266,7 +265,7 @@ ReflectionTemporalResult ResolveReflectionTemporal(
 	float historyValid = step(0.05, historyWeightSum) * reprojection.valid;
 	vec4 historySignal = historySignalSum / max(historyWeightSum, 1.0e-5);
 	float historyAge = historyAgeSum / max(historyWeightSum, 1.0e-5);
-	// Clamp history to the accepted local current distribution.
+
 	if (historyValid > 0.5 && currentAvailable > 0.5) {
 		vec3 encodedHistory = ReflectionTemporalEncodeColor(historySignal.rgb);
 		historySignal.rgb = ReflectionTemporalDecodeColor(clamp(
@@ -287,7 +286,7 @@ ReflectionTemporalResult ResolveReflectionTemporal(
 	if (reflectionType >= 1.5) {
 		historyWeight = mix(0.80, 0.96875, smoothstep(2.0, 24.0, historyAge));
 	}
-	// Rough-lobe history spans a complete four-orientation sampling period.
+
 	float historyResponseCap = mix(
 		0.88,
 		0.94,

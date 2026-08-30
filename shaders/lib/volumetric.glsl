@@ -182,7 +182,7 @@ float StandardTerrainVisibility(
 	}
 
 	float bias = mix(0.00110, 0.00230, smoothstep(12.0, 220.0, sampleDistance));
-	// Volumetric shadowing uses one shadow decision; main TAA resolves shimmer.
+
 	vec2 shadowUv = clamp(ShadowSampleUv(shadowClipXY, vec2(0.0)), vec2(0.0), vec2(1.0));
 	ivec2 shadowSize = max(textureSize(shadowtex1, 0), ivec2(1));
 	ivec2 shadowTexel = clamp(
@@ -309,7 +309,7 @@ VolumeSample IntegrateVolume(
 		float sampleDistance;
 		float integrationStepLength;
 		if (i < nearStepCount) {
-			// Shared offset preserves depth-strata ordering.
+
 			sampleDistance = nearStepLength * (fi + rayJitter);
 			integrationStepLength = nearStepLength;
 		} else {
@@ -368,7 +368,7 @@ VolumeSample IntegrateVolume(
 		vec3 sigmaS = (rayleighBase * molecularDensity + mieScatterBase * aerosolDensity) * airScatterTint;
 		vec3 sigmaT = rayleighBase * molecularDensity + mieExtinctionBase * aerosolDensity;
 		vec3 stepTransmittance = exp(-sigmaT * integrationStepLength);
-		// Shaft presentation lift must not cancel low-sun attenuation.
+
 		float directArtBoost = mix(1.12, 1.22, lowSunSide);
 		vec3 directSource = lightColor * lightActive * shaftVisibility * directArtBoost * airScatterTint * (
 			rayleighBase * molecularDensity * rayleighPhase +

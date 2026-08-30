@@ -50,8 +50,7 @@ int VoxelGiTrace(
 	sphereRadiance = vec3(0.0);
 	rayTransmittance = vec3(1.0);
 
-	// Callers provide unit directions.
-	if (dot(inputDirection, inputDirection) < 1.0e-14) {
+if (dot(inputDirection, inputDirection) < 1.0e-14) {
 		return FOXY_VOXEL_GI_TRACE_INVALID;
 	}
 	vec3 rayDirection = inputDirection;
@@ -205,7 +204,7 @@ int VoxelGiTrace(
 		if (VoxelGridOccupied(payload)) {
 			uint materialId = VoxelGridMaterial(payload);
 			if (VoxelSphereEmitterMaterial(materialId)) {
-				// Small emitters are participating spheres, not cell occluders.
+
 				float chordWeight = VoxelGiSphereChordWeight(
 					rayOrigin,
 					rayDirection,
@@ -252,17 +251,17 @@ int VoxelGiTrace(
 						shapeHitNormal
 					);
 				}
-				// Transmission follows material class, not shape descriptor ordering.
+
 				bool glassHit = shapeHit && (
 					paneShape ||
 					(materialId >= 10300u && materialId <= 10316u)
 				);
 				if (glassHit) {
-					// Accumulate pane transmission in traversal order.
+
 					rayTransmittance *= TransmissionColor(float(materialId));
 				} else if (
 					shapeHit &&
-					// Analytic shapes remain valid in the origin cell after coarse self-hit suppression.
+
 					!(suppressFirstCell && firstCell && !analyticShape)
 				) {
 					hitPayload = payload;
@@ -286,7 +285,7 @@ int VoxelGiTrace(
 			}
 			return FOXY_VOXEL_GI_TRACE_DISTANCE_LIMIT;
 		}
-		// Ray-box clipping guarantees the start cell; terminate at the exact exit plane.
+
 		if (
 			domainExitBeforeDistance &&
 			nextTravel >= exitDistance - 1.0e-5
@@ -314,7 +313,7 @@ int VoxelGiTrace(
 			nextDistance.z += stepDistance.z;
 			crossingNormal.z = -float(cellStep.z);
 		}
-		// Preserve multi-axis steps only for exact edge and corner crossings.
+
 		float crossingLengthSquared = dot(crossingNormal, crossingNormal);
 		cellEntryNormal = crossingLengthSquared > 1.0001
 			? crossingNormal * inversesqrt(crossingLengthSquared)

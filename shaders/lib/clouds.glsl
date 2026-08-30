@@ -73,14 +73,12 @@ vec3 CloudUniformSkyAmbientColor(const in float sunAltitude, const in float rain
 }
 #endif
 
-
 #define CLOUD_UNDERSIDE_HEIGHT_TOGGLE 1.0
 
 float CloudDensityScale() {
 	return FOXY_CLOUD_MEDIUM_DENSITY_SCALE;
 }
 
-// Density remap preserves porous edges while increasing mature-core optical depth.
 float CloudCoreDensityRemap(const in float density) {
 	float d = Saturate(density);
 	float coreWeight = smoothstep(0.24, 0.74, d);
@@ -820,7 +818,7 @@ vec3 CloudSampleLighting(
 			powder
 		);
 	#endif
-	// Sunset lighting separates the powder rim from dense-body illumination.
+
 	float sunsetBand = smoothstep(-0.12, 0.015, sunAltitude)
 		* (1.0 - smoothstep(0.08, 0.42, sunAltitude));
 	float sunFacingBase = Saturate(mu * 0.5 + 0.5);
@@ -834,7 +832,7 @@ vec3 CloudSampleLighting(
 	float solarLuma = max(Luma(lightColor), 0.0);
 	vec3 warmSun = lightColor / max(solarLuma, 1.0e-4);
 	float silverLining = firePresence * (0.12 + 0.70 * thinEdge);
-	// Silver lining is view-dependent; illuminated-face warmth is not.
+
 	float sunlitSurface = sunsetBand
 		* (0.28 + 0.72 * verticalProbability)
 		* (0.34 + 0.66 * structure)
@@ -846,7 +844,7 @@ vec3 CloudSampleLighting(
 	directionalScatter += powderSilver * (0.16 + 0.34 * Saturate(1.0 - powder));
 	float directEnergy = directionalScatter * (0.22 + 0.94 * structure) * verticalProbability * mix(0.82, 1.08, powder);
 	vec3 direct = lightColor * directEnergy * mix(0.70, 0.46, rainStrength);
-	// Warm face lighting modifies direct scattering only.
+
 	direct *= mix(vec3(1.0), warmSun, surfaceTint);
 	direct *= mix(vec3(1.0), warmSun, silverLining * 0.78);
 
@@ -1092,7 +1090,7 @@ vec4 CloudMarchLayer(
 	if (weightSum > 1.0e-5) {
 		apparentDistance = weightedDistance / weightSum;
 	}
-	// Apply aerial perspective after cloud lighting to preserve distant atmospheric hue.
+
 	float distanceFog = 1.0 - exp(-apparentDistance * (0.000010 + FOXY_FOG_DENSITY * 0.000014));
 	float horizonAerial = smoothstep(0.32, 0.96, 1.0 - abs(rayDir.y));
 	float aerialPerspective = distanceFog * mix(0.16, 0.70, horizonAerial);

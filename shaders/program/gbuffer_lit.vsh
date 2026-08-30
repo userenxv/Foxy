@@ -4,6 +4,7 @@
 #include "/lib/lighting.glsl"
 #include "/lib/dimension_sky.glsl"
 #include "/lib/wind.glsl"
+#include "/lib/emissive.glsl"
 
 uniform float viewWidth;
 uniform float viewHeight;
@@ -20,6 +21,7 @@ varying vec3 surfaceNormalView;
 varying vec3 surfaceViewPosition;
 varying vec3 surfaceWorldPosition;
 varying float vertexMaterialId;
+varying float vertexEmissionLevel;
 varying vec3 vertexSunLightColor;
 varying vec3 vertexMoonLightColor;
 varying vec3 vertexSkyAmbientColor;
@@ -38,6 +40,9 @@ varying vec3 surfaceBitangentView;
 
 attribute vec4 mc_Entity;
 attribute vec2 mc_midTexCoord;
+#ifdef TERRAIN
+attribute vec4 at_midBlock;
+#endif
 
 uniform mat4 gbufferModelViewInverse;
 uniform mat4 gbufferModelView;
@@ -53,13 +58,20 @@ void main() {
 	texcoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
 	vec2 atlasSpriteCenterUv = (gl_TextureMatrix[0] * vec4(mc_midTexCoord, 0.0, 1.0)).xy;
 	vec2 spriteCenterDelta = texcoord - atlasSpriteCenterUv;
-	// Derive POM frame coordinates entirely in atlas space.
+
 	spriteUv = sign(spriteCenterDelta) * 0.5 + 0.5;
 	spriteHalfSize = abs(spriteCenterDelta);
 	vertexLmcoord = (gl_TextureMatrix[1] * gl_MultiTexCoord1).xy;
 	surfaceColor = gl_Color;
 	surfaceNormalView = normalize(gl_NormalMatrix * gl_Normal);
 	vertexMaterialId = mc_Entity.x;
+	#ifdef TERRAIN
+
+		vertexEmissionLevel = max(at_midBlock.w, 0.0);
+	#else
+
+		vertexEmissionLevel = EmissionFallbackLevel(vertexMaterialId);
+	#endif
 	vec4 baseViewPos = gl_ModelViewMatrix * gl_Vertex;
 	vec3 playerPos = (gbufferModelViewInverse * baseViewPos).xyz;
 	float topVertex = 1.0 - step(atlasSpriteCenterUv.y, texcoord.y);
@@ -116,7 +128,7 @@ void main() {
 
 	#if FOXY_PBR_NORMAL_MAPS == 1 && defined(TERRAIN)
 		vec3 tangentView = normalize(gl_NormalMatrix * at_tangent.xyz);
-		// Iris/OptiFine defines B = cross(T, N) * at_tangent.w.
+
 		tangentView = normalize(tangentView - surfaceNormalView * dot(tangentView, surfaceNormalView));
 		vec3 bitangentView = normalize(cross(tangentView, surfaceNormalView)) * at_tangent.w;
 		surfaceTangentView = tangentView;

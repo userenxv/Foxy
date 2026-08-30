@@ -17,7 +17,7 @@ vec3 NetherEnvironment(const in vec3 worldDir) {
 }
 
 vec3 EndSunWorldDirection() {
-	// Fixed 60-degree elevation and 45-degree azimuth.
+
 	return vec3(0.35355339, 0.86602540, 0.35355339);
 }
 

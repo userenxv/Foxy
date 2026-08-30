@@ -18,7 +18,7 @@ void voxy_emitFragment(VoxyFragmentParameters parameters) {
 	float materialId = VoxyMaterialId(parameters.customId);
 	float waterSurface = abs(materialId - 10008.0) < 0.5 ? 1.0 : 0.0;
 	float alpha = clamp(parameters.sampledColour.a * parameters.tinting.a, 0.0, 1.0);
-	// Voxy water presence comes from custom block ID, not atlas alpha.
+
 	if (waterSurface < 0.5 && alpha <= 0.001) discard;
 
 	voxySceneColor = vec4(0.0);
@@ -69,7 +69,7 @@ void voxy_emitFragment(VoxyFragmentParameters parameters) {
 				far
 			);
 		#endif
-		// Encode world normals directly into Iris main optical space.
+
 		vec3 mainOpticalNormal = normalize(mat3(gbufferModelView) * normalWorld);
 		voxyMaterial = MaterialWaterPacket(mainOpticalNormal, 0.0, 0.0);
 		voxyWaterSurface = WaterSurfacePack(

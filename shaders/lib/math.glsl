@@ -5,7 +5,6 @@
 
 const float PI = 3.14159265358979323846;
 
-
 float Saturate(const in float x) {
 	return clamp(x, 0.0, 1.0);
 }
@@ -194,7 +193,7 @@ float Fbm3Fast(const in vec3 p) {
 // Derived from the MIT-licensed BakingLab ACES fit by Stephen Hill/MJP.
 // The required license notice is retained in /THIRD_PARTY_NOTICES.txt.
 vec3 TonemapAcesFitted(const in vec3 color) {
-	// RRT+ODT fit in AP1 working space.
+
 	const mat3 acesInput = mat3(
 		0.59719, 0.07600, 0.02840,
 		0.35458, 0.90834, 0.13383,
@@ -223,7 +222,7 @@ float TonemapFilmicCurve(const in float x) {
 }
 
 vec3 TonemapFilmic(const in vec3 color) {
-	// Tone-map luminance while preserving chroma direction.
+
 	vec3 x = max(color, vec3(0.0));
 	float sourceLuma = Luma(x);
 	if (sourceLuma <= 1.0e-6) return vec3(0.0);
@@ -237,7 +236,7 @@ vec3 TonemapFilmic(const in vec3 color) {
 // Derived from Benjamin Wrensch's MIT-licensed Minimal AgX implementation.
 // The required license notice is retained in /THIRD_PARTY_NOTICES.txt.
 vec3 TonemapAgx(const in vec3 color) {
-	// AgX inset, log2 contrast, and outset approximation.
+
 	const mat3 inset = mat3(
 		0.8424790623, 0.0423282423, 0.0423756549,
 		0.0784336000, 0.8784686365, 0.0784336000,

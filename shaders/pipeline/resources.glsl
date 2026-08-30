@@ -1,7 +1,6 @@
 #ifndef PIPELINE_RESOURCES_GLSL
 #define PIPELINE_RESOURCES_GLSL
 
-// Existing colortex ownership used by the pipeline.
 #define FOXY_BUFFER_SCENE_COLOR 0
 #define FOXY_BUFFER_CLOUD_SOURCE 1
 #define FOXY_BUFFER_GBUFFER_DATA 2
@@ -77,8 +76,6 @@
 #define FOXY_RESOURCE_UNALLOCATED -1
 #define FOXY_RESOURCE_CUSTOM_IMAGE_BASE 100
 
-// Semantic endpoint contracts.  These IDs are bookkeeping only; the actual
-// bindings are declared in shaders.properties and images.glsl.
 #define FOXY_SCENE_ENDPOINT_CURRENT (FOXY_RESOURCE_CUSTOM_IMAGE_BASE + 20)
 #define FOXY_LAYER_ENDPOINT_CURRENT (FOXY_RESOURCE_CUSTOM_IMAGE_BASE + 21)
 #define FOXY_LAYER_ENDPOINT_PREVIOUS (FOXY_RESOURCE_CUSTOM_IMAGE_BASE + 22)
@@ -126,7 +123,6 @@
 #define FOXY_REFLECTION_HISTORY_OWNER FOXY_OWNER_MATERIAL_REFLECTION
 #define FOXY_REFLECTION_HISTORY_LIFETIME FOXY_LIFETIME_HISTORY
 
-// Geometry and two four-bit light levels share one 8 MiB SSBO cell payload.
 #define FOXY_VOXEL_SSBO_BINDING 0
 #define FOXY_VOXEL_SSBO_BYTES 8388608
 #define FOXY_IRC_SSBO_BINDING_A 1

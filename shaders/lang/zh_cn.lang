@@ -176,7 +176,7 @@ value.FOXY_CLOUD_QUALITY.2=高
 
 option.FOXY_EXPOSURE.comment=调整画面的整体曝光。
 option.FOXY_POST_EXPOSURE_BRIGHTNESS.comment=调整自动曝光后的最终画面亮度。
-option.FOXY_BLOOM_STRENGTH.comment=最终阶段的轻量泛光强度。
+option.FOXY_BLOOM_STRENGTH.comment=严格居中的能量守恒光学泛光。设为 0 时完全禁用泛光计算。
 option.FOXY_CLOUDS.comment=开启程序体积云。
 option.FOXY_CLOUD_QUALITY.comment=提高可改善云层细节，但性能开销更高。
 option.FOXY_CLOUD_WORLD_SCALE.comment=调整整体云景的尺寸。

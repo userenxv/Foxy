@@ -2,7 +2,7 @@
 #define WATER_REFLECTION_TRACE_SCREEN_GLSL
 
 vec4 ProjectViewPos(const in vec3 viewPos) {
-	// Decode Voxy depth with Voxy matrices, then project through the shared scene grid.
+
 	vec4 clip = gbufferProjection * vec4(viewPos, 1.0);
 	vec3 ndc = clip.xyz / SafeDivisor(clip.w);
 	return vec4(ndc * 0.5 + 0.5, clip.w);
@@ -13,7 +13,7 @@ float TraceViewDepth(
 	const in vec2 startQzAndK,
 	const in vec2 endQzAndK
 ) {
-	// McGuire and Mara 2014: Q*k and k are affine in screen space.
+
 	vec2 qzAndK = startQzAndK * (1.0 - rayT) + endQzAndK * rayT;
 	return max(-qzAndK.x / SafeDivisor(qzAndK.y), 0.0);
 }
@@ -25,7 +25,7 @@ float TraceNextT(
 	const in vec2 startQzAndK,
 	const in vec2 endQzAndK
 ) {
-	// Approach Q/k depth crossings within the fixed iteration budget.
+
 	float startEquation = startQzAndK.x + sampleDepth * startQzAndK.y;
 	float endEquation = endQzAndK.x + sampleDepth * endQzAndK.y;
 	float denominator = startEquation - endEquation;
@@ -51,14 +51,14 @@ float AxisLimit(const in float pos, const in float dir) {
 float TraceLimit(const in vec3 screenPos, const in vec3 screenDelta) {
 	float limitX = AxisLimit(screenPos.x, screenDelta.x);
 	float limitY = AxisLimit(screenPos.y, screenDelta.y);
-	// Only XY viewport bounds terminate the analytically extended depth ray.
+
 	return min(limitX, limitY);
 }
 
 vec2 PixelCenter(const in vec2 uv) {
 	vec2 viewSize = max(vec2(viewWidth, viewHeight) * SrActiveRenderScale(), vec2(1.0));
 	#if defined(VOXY)
-		// Quantize Voxy hits on the stable endpoint grid; add jitter after hit validation.
+
 		vec2 safeViewUv = clamp(uv, vec2(0.0), vec2(0.999999));
 		return (floor(safeViewUv * viewSize) + vec2(0.5)) / viewSize;
 	#else
@@ -80,7 +80,7 @@ vec4 TraceWaterReflection(
 
 	float waterDepth = max(-waterViewPos.z, 0.25);
 	float reach = Saturate(FOXY_WATER_REFLECTION_STRETCH);
-	// The bounded loop spans full MAIN/DH reach without a world-distance ceiling.
+
 	float sceneReach = clamp(SceneReach(far), 72.0, 65536.0);
 	float maxTraceRange = max(mix(96.0, 184.0, reach), sceneReach * mix(0.90, 1.0, reach));
 	float rayLength = maxTraceRange;
@@ -210,7 +210,7 @@ vec4 TraceWaterReflection(
 
 					if (refinedDelta > -refinedThickness * 0.30 && refinedDelta < refinedThickness) {
 						float edgeFade = ScreenEdgeFade(refinedUv);
-						// Validated hits are opaque; only viewport exits blend to fallback.
+
 						hitUv = refinedUv;
 						hitCoverage = edgeFade;
 						hitRaw = 1.0;

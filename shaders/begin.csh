@@ -11,12 +11,7 @@ const ivec3 workGroups = ivec3(128, 1, 1);
 #include "/lib/voxel/voxel_shape_buffer.glsl"
 #include "/lib/voxel/voxel_shape_table.glsl"
 
-#if FOXY_IRRADIANCE_CACHE_ACTIVE == 1
-layout(std430, binding = 3) coherent buffer IrradianceFeedback {
-	uint ircActiveCount;
-	uint ircActiveCells[];
-};
-#endif
+#include "/lib/voxel/irc_dispatch.glsl"
 
 void main() {
 	uint shapeIndex = gl_GlobalInvocationID.x;
@@ -27,7 +22,14 @@ void main() {
 		voxelShapeBoxes[shapeIndex] = FOXY_VOXEL_SHAPE_BOXES[shapeIndex];
 	}
 	#if FOXY_IRRADIANCE_CACHE_ACTIVE == 1
-		if (gl_GlobalInvocationID.x == 0u) ircActiveCount = 0u;
+		if (gl_GlobalInvocationID.x == 0u) {
+			#if FOXY_IRC_SSPT_MODE == 1
+				ircDispatchGroupsX = 1u;
+				ircDispatchGroupsY = 1u;
+				ircDispatchGroupsZ = 1u;
+			#endif
+			ircActiveCount = 0u;
+		}
 	#endif
 	uint stride = gl_NumWorkGroups.x * gl_WorkGroupSize.x;
 	for (

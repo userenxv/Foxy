@@ -125,9 +125,8 @@ void main() {
 		waterAlpha = max(waterAlpha, mix(0.12, 0.26, waterFog));
 		float waterSunGlintSignal = 0.0;
 		if (FOXY_WATER_SUN_GLINT > 0.001) {
-			// Reuse the existing DH normal, skylight and direct-light state.  DH
-			// water has no additional shadow lookup here by design.
-			vec3 sunGlint = WaterSunGlint(
+
+vec3 sunGlint = WaterSunGlint(
 				normalView,
 				-incidentView,
 				sunView,

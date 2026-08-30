@@ -7,6 +7,7 @@ struct ScreenTraceResult {
 	float normalizedDistance;
 	float rejection;
 	float terminal;
+	float viewportExit;
 	vec3 transmittance;
 };
 
@@ -107,6 +108,7 @@ ScreenTraceResult TraceScreen(
 	result.normalizedDistance = 0.0;
 	result.rejection = 0.0;
 	result.terminal = 0.0;
+	result.viewportExit = 0.0;
 	result.transmittance = vec3(1.0);
 
 	vec3 relativeOrigin = query.worldOrigin - cameraPosition;
@@ -244,10 +246,8 @@ ScreenTraceResult TraceScreen(
 					vec3 hitPlayerPos = (gbufferModelViewInverse * vec4(hitViewPos, 1.0)).xyz;
 					PtGbufferSample hitGbuffer = PtDecodeGbuffer(hitSurface, hitDepthRaw);
 					result.hit.worldPosition = cameraPosition + hitPlayerPos;
-					// History metadata stores the stable geometry normal.  Feedback
-					// matching must use the same guide while the primary ray direction
-					// remains driven by the full PBR shading normal.
-					result.hit.worldNormal = hitGbuffer.worldGeometricNormal;
+
+result.hit.worldNormal = hitGbuffer.worldGeometricNormal;
 					result.hit.albedo = hitGbuffer.albedo;
 					result.hit.emission = hitGbuffer.emission;
 					result.hit.lightmap = hitGbuffer.lightmap;
@@ -304,6 +304,10 @@ ScreenTraceResult TraceScreen(
 
 	if (result.rejection < 0.5 && screenLimit >= 0.999) {
 		result.terminal = 1.0;
+	}
+
+	if (result.rejection < 0.5 && screenLimit < 0.999) {
+		result.viewportExit = 1.0;
 	}
 	return result;
 }

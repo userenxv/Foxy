@@ -15,7 +15,9 @@ uniform sampler2D colortex0;
 	#define FOXY_FINAL_SCENE_FROM_COMPOSED 0
 uniform sampler2D colortex0;
 #endif
+#if FOXY_BLOOM_STRENGTH > 0
 uniform sampler2D colortex1;
+#endif
 uniform sampler2D colortex5;
 uniform sampler2D colortex6;
 uniform sampler2D colortex7;
@@ -88,14 +90,14 @@ vec2 FinalScenePixelCenter(const in vec2 uv) {
 	return SrPixelCenter(uv);
 }
 
-vec3 BloomBufferSample(const in vec2 uv, const in vec2 offset) {
-	vec2 sampleUv = clamp(uv + offset, vec2(0.0), vec2(1.0));
-	#if FOXY_TAAU_ACTIVE == 1
-		return max(texture2D(colortex1, sampleUv).rgb, vec3(0.0));
-	#else
-		return max(texture2D(colortex1, SrPresentationUv(sampleUv)).rgb, vec3(0.0));
-	#endif
+#if FOXY_BLOOM_STRENGTH > 0
+vec3 BloomBufferSample(const in vec2 uv) {
+	vec2 bloomSize = vec2(max(textureSize(colortex1, 0), ivec2(1)));
+	vec2 edge = 0.5 / bloomSize;
+	vec2 sampleUv = clamp(SrPresentationUv(uv), edge, vec2(1.0) - edge);
+	return max(texture2D(colortex1, sampleUv).rgb, vec3(0.0));
 }
+#endif
 
 vec4 VolumeBufferSample(const in vec2 uv) {
 	vec4 v = DecodeVolumeBuffer(texture2D(colortex6, SrSceneSampleUv(uv)));
@@ -106,19 +108,12 @@ vec3 FinalDecodeSkyLutColor(const in vec3 c) {
 	return DecodeBufferColor(c);
 }
 
-vec3 FinalBloom(const in vec2 uv, const in vec2 px) {
-	vec2 bloomPx = px * 4.0;
-	vec2 bilinearOffset = bloomPx * 0.40;
-	vec3 bloom = BloomBufferSample(uv, vec2( bilinearOffset.x,  bilinearOffset.y));
-	bloom += BloomBufferSample(uv, vec2(-bilinearOffset.x,  bilinearOffset.y));
-	bloom += BloomBufferSample(uv, vec2( bilinearOffset.x, -bilinearOffset.y));
-	bloom += BloomBufferSample(uv, vec2(-bilinearOffset.x, -bilinearOffset.y));
-	bloom *= 0.25;
-	float luma = Luma(bloom);
-	float compressed = luma / (1.0 + luma * 0.28);
-	bloom *= compressed / max(luma, 1.0e-4);
-	return bloom;
+#if FOXY_BLOOM_STRENGTH > 0
+vec3 FinalBloom(const in vec2 uv) {
+
+return BloomBufferSample(uv);
 }
+#endif
 
 vec3 FinalDither(const in vec3 color, const in float noisePattern) {
 	float luma = Luma(color);
@@ -271,7 +266,7 @@ vec3 FinalMotionBlur(
 	}
 	float blurCoverage = smoothstep(0.35, 1.50, effectiveVelocityPx);
 	vec2 edge = SrFullPixelSize() * 2.0;
-	// Complementary phases preserve unit weight and zero centroid.
+
 	int shutterPhase = (int(floor(shutterPattern * 4.0)) + (frameCounter & 3)) & 3;
 	const vec4 innerTaps = vec4(0.30, 0.42, 0.54, 0.66);
 	const vec4 outerTaps = vec4(0.97553404, 0.93019711, 0.86606389, 0.77850284);
@@ -307,7 +302,7 @@ vec3 FinalMotionBlur(
 
 float FinalDofFocusDistance() {
 	#if FOXY_DOF_AUTO_FOCUS == 1
-		// Sky focus uses the far plane; geometry retains smoothed focus.
+
 		float centerRawDepth = texture2D(
 			depthtex0,
 			SrSceneSampleUv(vec2(0.5))
@@ -333,7 +328,7 @@ float FinalDofSignedCoc(
 	const in float distanceToCamera,
 	const in float focusDistance
 ) {
-	// Signed thin-lens circle of confusion in screen pixels.
+
 	float focalLength = min(0.35, focusDistance * 0.20);
 	float focusSeparation = max(focusDistance - focalLength, 0.05);
 	float lens = FOXY_DOF_APERTURE * focusDistance * 1.70;
@@ -418,7 +413,6 @@ void main() {
 		vec3 volumeScatter = max(volume.rgb, vec3(0.0));
 		finalVolumeScatter = volumeScatter;
 	#endif
-	vec2 px = SrFullPixelSize();
 	float autoExposure = finalVertexExposure;
 	float finalSunAltitude = presentationSunAltitude;
 	float finalNightAdaptation = 1.0 - smoothstep(-0.105, 0.035, finalSunAltitude);
@@ -428,23 +422,14 @@ void main() {
 		vec3 shiftedSky = ApplyPurkinjeVision(hdr, finalSunAltitude, 0.0, 1.0, purkinjeEyeSky);
 		hdr = mix(hdr, shiftedSky, purkinjeSkyMask);
 	}
-	vec3 bloom = vec3(0.0);
-	float bloomLuma = 0.0;
 	vec3 graded = hdr;
-	bloom = FinalBloom(texcoord, px);
-	bloomLuma = Luma(bloom);
-	float screenVignette = Saturate(1.20 - dot(texcoord - vec2(0.5), texcoord - vec2(0.5)) * 1.35);
-	float atmosphereBloom = mix(0.82, 1.30, AtmosphereStyleWarp());
-	float bloomHaze = Saturate(FOXY_BLOOM_STRENGTH * atmosphereBloom * (0.10 + bloomLuma * 0.42) * screenVignette);
-	vec3 bloomFogTarget = hdr + max(bloom - hdr * 0.10, vec3(0.0)) * 0.52;
-	bloom *= FOXY_BLOOM_STRENGTH * atmosphereBloom * mix(0.38, 0.62, Saturate(bloomLuma * 0.30)) * screenVignette;
-	float bloomFog = FOXY_BLOOM_FOG * smoothstep(0.995, 1.0, depthRaw) * (1.0 - sceneSurfaceMask) * (0.35 + rainStrength * 0.50);
-	bloom *= 1.0 + bloomFog;
-	graded = mix(hdr, bloomFogTarget, bloomHaze) + bloom;
+	#if FOXY_BLOOM_STRENGTH > 0
+		vec3 bloom = FinalBloom(texcoord);
+		float bloomLuma = Luma(bloom);
+		float bloomScatter = Saturate(float(FOXY_BLOOM_STRENGTH) * 0.0028);
+		graded = mix(hdr, bloom, bloomScatter);
+	#endif
 	if (isEyeInWater == 1) {
-		vec3 underwaterBloom = bloom * (1.55 + Saturate(FOXY_WATER_FOG) * 1.10);
-		float underwaterBloomHaze = Saturate((0.22 + bloomLuma * 0.58) * FOXY_BLOOM_STRENGTH * (0.72 + FOXY_WATER_UNDERWATER * 0.68));
-		graded = mix(graded, graded + underwaterBloom, underwaterBloomHaze);
 		float waterAmount = Saturate(FOXY_WATER_UNDERWATER);
 		float waterFogStrength = Saturate(FOXY_WATER_FOG);
 		vec3 viewPos = EndpointViewPosition(
@@ -499,8 +484,12 @@ void main() {
 		scatterIntegral *= mix(0.80, 1.18, waterAmount);
 		scatterIntegral += finalVolumeScatter * (0.34 + waterFogStrength * 0.32);
 		vec3 mediumColor = graded * mix(vec3(1.0), transmittance, waterAmount) + scatterIntegral * waterAmount;
-		float underwaterGlow = Saturate((Luma(scatterIntegral) * 2.8 + bloomLuma * 0.85) * (0.30 + waterOcclusion * 0.88));
-		mediumColor = mix(mediumColor, mediumColor + scatterIntegral * 1.85 + underwaterBloom * 0.34, underwaterGlow);
+		float underwaterGlowSource = Luma(scatterIntegral) * 2.8;
+		#if FOXY_BLOOM_STRENGTH > 0
+			underwaterGlowSource += bloomLuma * 0.35;
+		#endif
+		float underwaterGlow = Saturate(underwaterGlowSource * (0.30 + waterOcclusion * 0.88));
+		mediumColor = mix(mediumColor, mediumColor + scatterIntegral * 1.85, underwaterGlow);
 		graded = mediumColor;
 	}
 	graded = FinalApplyWhiteBalance(graded);

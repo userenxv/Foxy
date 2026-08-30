@@ -80,6 +80,7 @@ varying vec3 surfaceNormalView;
 varying vec3 surfaceViewPosition;
 varying vec3 surfaceWorldPosition;
 varying float vertexMaterialId;
+varying float vertexEmissionLevel;
 varying vec3 vertexSunLightColor;
 varying vec3 vertexMoonLightColor;
 varying vec3 vertexSkyAmbientColor;
@@ -142,7 +143,7 @@ ShadowReceiver ShadowBuildReceiver(
 	normalOffset = clamp(normalOffset, 0.018, 0.220);
 	vec3 normalPlayer = normalize(mat3(gbufferModelViewInverse) * normalView);
 	vec3 receiverPlayerPos = surfaceWorldPosition + normalPlayer * normalOffset;
-	// Enclosed terrain contracts the receiver to prevent cave-edge shadow leaks.
+
 	float interiorReceiver = 1.0 - smoothstep(0.045, 0.115, skyLight);
 	if (interiorReceiver > 0.001) {
 		vec3 receiverWorldPos = receiverPlayerPos + cameraPosition;
@@ -339,8 +340,7 @@ float ShadowFilterPcf(
 		visibility += opaqueVisibility;
 		vec3 sampleEnergy = vec3(opaqueVisibility);
 
-		// Opaque and transmissive shadows share one PCF footprint.
-		if (sampleTransmission) {
+if (sampleTransmission) {
 			vec2 uv = ShadowFilterSampleUv(
 				receiver.clipXY,
 				receiver.coord.xy,
@@ -487,7 +487,7 @@ PbrMaterial BuildLitPbrMaterial(
 }
 
 #if FOXY_PBR_NORMAL_MAPS == 1 && !defined(TERRAIN)
-// Rebuild tangent frames for geometry without a reliable terrain tangent attribute.
+
 bool GbufferLitDerivativeTangentFrame(
 	const in vec3 normalView,
 	out vec3 tangentView,
@@ -519,7 +519,7 @@ bool GbufferLitDerivativeTangentFrame(
 #endif
 
 #if FOXY_VOXEL_GI_ACTIVE == 1
-// Build fallback from the continuous raster lightmap, not quantized PT metadata.
+
 vec3 GbufferLitVrtgiFallbackIndirect(
 	const in vec2 continuousLightmap,
 	const in vec3 geometricWorldNormal,
@@ -672,7 +672,7 @@ void main() {
 	vec3 lightmapColor = SrgbToLinear(texture2D(lightmap, ditheredLmcoord).rgb);
 	float blockLight = ditheredLmcoord.x;
 	float skyLight = ditheredLmcoord.y;
-	// Remove the positive texel-center floor from light level zero.
+
 	float directSkyVisibility = smoothstep(0.045, 0.155, skyLight);
 	float underwaterView = isEyeInWater == 1 ? 1.0 : 0.0;
 	vec3 worldPosForLighting = surfaceWorldPosition + cameraPosition;
@@ -725,6 +725,11 @@ void main() {
 
 	vec3 albedo = SrgbToLinear(texel.rgb);
 	PbrMaterial material = BuildLitPbrMaterial(albedo, normalView, materialUv, materialGradients);
+	float resolvedEmissionMask = PbrResolvedEmissionMask(
+		material,
+		vertexMaterialId,
+		vertexEmissionLevel
+	);
 	float puddleMask = 0.0;
 	#if defined(TERRAIN)
 		if (rainStrength > 0.001) {
@@ -787,7 +792,10 @@ void main() {
 		} else if (PbrIdInRange(vertexMaterialId, 10101.0, 10103.0)) {
 			ptSurfaceClass = PT_SURFACE_PLANT;
 		}
-		bool ptEmissiveTexel = material.emissionMask > 0.0;
+
+bool ptHasAuthoredEmission = material.emissionMask > 0.003;
+		bool ptFallbackEmitter = vertexEmissionLevel > 0.5 && !ptHasAuthoredEmission;
+		bool ptEmissiveTexel = ptHasAuthoredEmission || ptFallbackEmitter;
 		if (ptEmissiveTexel) {
 			ptSurfaceClass = PT_SURFACE_EMISSIVE;
 		}
@@ -800,9 +808,14 @@ void main() {
 		vec3 ptWorldGeometricNormal = normalize(
 			mat3(gbufferModelViewInverse) * geometricNormalView
 		);
-		// Emitted RGB is a dedicated field, not albedo.
+
 		vec3 ptDiffuseAlbedo = PbrDiffuseAlbedo(material);
-		vec3 ptStoredEmission = PbrSsptEmission(material.albedo, material.emissionMask);
+		vec3 ptStoredEmission = PbrResolvedSsptEmission(
+			material,
+			vertexMaterialId,
+			vertexEmissionLevel,
+			resolvedEmissionMask
+		);
 		vec3 ptStoredAlbedo = ptEmissiveTexel
 			? Saturate3(ptStoredEmission)
 			: ptDiffuseAlbedo;
@@ -860,9 +873,14 @@ void main() {
 	#endif
 	vec3 diffuseAlbedo = PbrDiffuseAlbedo(material);
 	vec3 pbrDirectAdditive = diffuseAlbedo * directSss + directSpecular;
-	vec3 surfaceEmission = PbrSurfaceEmission(material.albedo, material.emissionMask);
-	// LabPBR emission replaces reflected light according to its mask.
-	float reflectedLightWeight = 1.0 - Saturate(material.emissionMask);
+	vec3 surfaceEmission = PbrResolvedSurfaceEmission(
+		material,
+		vertexMaterialId,
+		vertexEmissionLevel,
+		resolvedEmissionMask
+	);
+
+	float reflectedLightWeight = 1.0 - resolvedEmissionMask;
 	vec3 torch = TorchColor(blockLight);
 	float underwaterLightMod = 1.0;
 	float underwaterCausticBoost = 0.0;
@@ -971,7 +989,7 @@ void main() {
 	#endif
 	#if FOXY_VOXEL_GI_ACTIVE == 1
 		#if FOXY_IRC_MODE == 0 && FOXY_RAY_MODE != FOXY_RAY_SSPT_VRTGI && FOXY_RAY_MODE != FOXY_RAY_IRC_SSPT
-		// Outside VRTGI, use the continuous pre-quantization lightmap.
+
 		vec3 vrtgiFallbackIndirect = GbufferLitVrtgiFallbackIndirect(
 			clamp(materialLmcoord, vec2(0.0), vec2(1.0)),
 			normalize(mat3(gbufferModelViewInverse) * geometricNormalView),

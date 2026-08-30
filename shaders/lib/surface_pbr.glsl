@@ -3,12 +3,13 @@
 
 #include "/lib/settings.glsl"
 #include "/lib/math.glsl"
+#include "/lib/emissive.glsl"
 
 struct PbrMaterial {
 	vec3 albedo;
 	vec3 normalView;
 	vec3 f0;
-	// LabPBR emission is scalar; its spectrum comes from the matching albedo texel.
+
 	float emissionMask;
 	float roughness;
 	float metalness;
@@ -149,7 +150,6 @@ void PbrApplyFallbackMaterial(inout PbrMaterial material, const in float materia
 
 }
 
-// Material-ID spectra are reserved for voxel source reconstruction.
 vec3 PbrEmissionRadiance(
 	const in vec3 albedo,
 	const in float emissionMask,
@@ -167,7 +167,6 @@ vec3 PbrSurfaceEmission(const in vec3 albedo, const in float emissionMask) {
 	);
 }
 
-// SSGI source energy is calibrated separately from visible surface emission.
 vec3 PbrSsptEmission(const in vec3 albedo, const in float emissionMask) {
 	return PbrEmissionRadiance(
 		albedo,
@@ -176,8 +175,100 @@ vec3 PbrSsptEmission(const in vec3 albedo, const in float emissionMask) {
 	);
 }
 
+float PbrFallbackEmissionMask(
+	const in vec3 albedo,
+	const in float materialId,
+	const in float blockEmissionLevel
+) {
+	if (blockEmissionLevel < 0.5) return 0.0;
+
+return 1.0;
+}
+
+float PbrResolvedEmissionMask(
+	const in PbrMaterial material,
+	const in float materialId,
+	const in float blockEmissionLevel
+) {
+
+if (material.emissionMask > 0.003) return Saturate(material.emissionMask);
+	return PbrFallbackEmissionMask(material.albedo, materialId, blockEmissionLevel);
+}
+
+vec3 PbrFallbackEmissionColor(
+	const in vec3 albedo,
+	const in float materialId
+) {
+
+return max(albedo, vec3(0.0));
+}
+
+vec3 PbrFallbackEmissionRadiance(
+	const in vec3 albedo,
+	const in float materialId,
+	const in float blockEmissionLevel,
+	const in float resolvedMask,
+	const in float brightness
+) {
+	if (resolvedMask <= 0.0) return vec3(0.0);
+	float levelWeight = Saturate(blockEmissionLevel * (1.0 / 15.0));
+	float calibration = mix(0.38, 0.72, levelWeight);
+	return PbrFallbackEmissionColor(albedo, materialId) * resolvedMask *
+		max(brightness, 0.0) * calibration;
+}
+
+vec3 PbrResolvedEmissionRadiance(
+	const in PbrMaterial material,
+	const in float materialId,
+	const in float blockEmissionLevel,
+	const in float resolvedMask,
+	const in float brightness
+) {
+	if (resolvedMask <= 0.0) return vec3(0.0);
+	if (material.emissionMask > 0.003) {
+		return PbrEmissionRadiance(material.albedo, resolvedMask, brightness);
+	}
+	return PbrFallbackEmissionRadiance(
+		material.albedo,
+		materialId,
+		blockEmissionLevel,
+		resolvedMask,
+		brightness
+	);
+}
+
+vec3 PbrResolvedSurfaceEmission(
+	const in PbrMaterial material,
+	const in float materialId,
+	const in float blockEmissionLevel,
+	const in float resolvedMask
+) {
+	return PbrResolvedEmissionRadiance(
+		material,
+		materialId,
+		blockEmissionLevel,
+		resolvedMask,
+		FOXY_PBR_EMISSION_BRIGHTNESS
+	);
+}
+
+vec3 PbrResolvedSsptEmission(
+	const in PbrMaterial material,
+	const in float materialId,
+	const in float blockEmissionLevel,
+	const in float resolvedMask
+) {
+	return PbrResolvedEmissionRadiance(
+		material,
+		materialId,
+		blockEmissionLevel,
+		resolvedMask,
+		FOXY_SSPT_PBR_EMISSION_BRIGHTNESS
+	);
+}
+
 float PbrLabEmissionMask(const in float encodedEmission) {
-	// LabPBR value 255 means absent alpha; all other values are linear emission.
+
 	return encodedEmission < 0.999 ? Saturate(encodedEmission) : 0.0;
 }
 

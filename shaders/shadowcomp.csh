@@ -4,10 +4,7 @@
 
 #if FOXY_IRRADIANCE_CACHE_ACTIVE == 1
 
-layout(std430, binding = 3) coherent buffer IrradianceFeedback {
-	uint ircActiveCount;
-	uint ircActiveCells[];
-};
+#include "/lib/voxel/irc_dispatch.glsl"
 
 layout(local_size_x = 8, local_size_y = 4, local_size_z = 4) in;
 const ivec3 workGroups = ivec3(16, 32, 32);
@@ -264,7 +261,7 @@ float IrcDirectVisibility(
 		0.018,
 		0.180
 	);
-	// Keep IRC's solar receiver on the represented voxel face, not a DDA seam.
+
 	vec3 faceCenter = floor(gridPosition - hitNormal * 1.0e-4) +
 		vec3(0.5) + hitNormal * 0.5;
 	vec3 scenePosition = faceCenter - fract(cameraPosition) -
@@ -356,7 +353,7 @@ vec3 IrcTraceSample(
 	}
 	if (traceResult != FOXY_VOXEL_GI_TRACE_SURFACE_HIT) {
 		rayDistance = FOXY_IRC_TRACE_DISTANCE;
-		// Trace-budget exhaustion is not an environment escape.
+
 		directRadiance = sampleRadiance;
 		return directRadiance;
 	}

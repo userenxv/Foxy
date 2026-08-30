@@ -170,7 +170,7 @@ float MaterialReflectionPow256(const in float value) {
 }
 
 #if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1 || FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 2
-// Five-tap cross with material, normal, depth, and roughness rejection.
+
 vec4 FilterMaterialReflectionCross(
 	const in vec2 centerRasterUv,
 	const in MaterialReflectionGuide centerMaterial,
@@ -178,7 +178,7 @@ vec4 FilterMaterialReflectionCross(
 	const in vec3 centerViewPosition
 ) {
 	vec4 centerSignal = MaterialReflectionFilterSource(centerRasterUv);
-	// Exact mirrors bypass rough-lobe spatial filtering.
+
 	if (centerMaterial.perceptualRoughness <= 0.085) return centerSignal;
 	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1 && FOXY_MATERIAL_REFLECTION_HIGH_QUALITY == 1
 		vec2 sourceSize = vec2(textureSize(colortex14, 0));
@@ -199,14 +199,14 @@ vec4 FilterMaterialReflectionCross(
 	float grazing = 1.0 - Saturate(dot(normalView, -viewDirection));
 	filterAxisX *= mix(0.18, 0.48, grazing);
 	filterAxisY *= mix(0.68, 0.50, grazing);
-	// Rough-lobe crosses cycle four orientations over their 180-degree symmetry.
+
 	const vec2 lobeRotations[4] = vec2[4](
 		vec2(1.0, 0.0),
 		vec2(0.70710678, 0.70710678),
 		vec2(0.0, 1.0),
 		vec2(-0.70710678, 0.70710678)
 	);
-	// Wide progressive support is followed by a fixed narrow resolve.
+
 	vec2 lobeRotation = vec2(1.0, 0.0);
 	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1
 		lobeRotation = lobeRotations[frameCounter & 3];
@@ -395,8 +395,7 @@ vec4 FilterMaterialReflection(
 			sampleLinearDepth = max(-sampleSurface.viewPosition.z, 0.0);
 		#endif
 
-		// R11G11B10F uses zero as the untraced sentinel.
-		float signalValid = step(1.0e-7, max(sampleSignal.r, max(sampleSignal.g, sampleSignal.b)));
+float signalValid = step(1.0e-7, max(sampleSignal.r, max(sampleSignal.g, sampleSignal.b)));
 		float weight = spatialWeight * signalValid;
 		weight *= MaterialReflectionSurfaceEnabled(sampleMaterial);
 		weight *= MaterialReflectionPow256(
@@ -416,7 +415,7 @@ vec4 FilterMaterialReflection(
 }
 
 #if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 3
-	// Local statistics constrain reprojected history without filtering final output.
+
 	void MaterialReflectionTemporalBounds(
 		const in vec2 centerRasterUv,
 		const in MaterialReflectionGuide centerMaterial,

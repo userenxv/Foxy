@@ -62,10 +62,8 @@ vec2 WaterRefractionUv(
 	geometricNormal *= sameHemisphere;
 	float waveUp = dot(wavedNormal, geometricNormal);
 	vec3 waveTangentView = wavedNormal - geometricNormal * waveUp;
-	// The material packet already contains the complete animated spectrum and
-	// rain-ripple normal. Measure only its displacement from the geometric fluid
-	// face: the face's own slope is geometry, not an animated refraction offset.
-	vec2 waveSlopeUv = waveTangentView.xy / max(abs(waveUp), 0.35);
+
+vec2 waveSlopeUv = waveTangentView.xy / max(abs(waveUp), 0.35);
 	float waveStrength = Saturate(FOXY_WATER_WAVE_STRENGTH);
 	float depthFade = smoothstep(0.10, 3.2, waterDepth) * (1.0 - smoothstep(170.0, 340.0, waterDepth));
 	float amount = mix(0.080, 0.150, waveStrength) * depthFade * Saturate(refractionMask);

@@ -47,7 +47,7 @@ vec2 TemporalCurrentRasterUv(const in vec2 viewUv) {
 }
 
 Endpoint TemporalPresentationEndpoint(const in vec2 viewUv) {
-	// Publish combined cloud, opaque, and water endpoints after temporal resolve.
+
 	vec2 endpointRenderUv = SrSceneSampleUv(viewUv);
 	Endpoint endpoint = EndpointUnpack(LoadLayerEndpoint(endpointRenderUv));
 	vec2 waterRasterUv = TemporalCurrentRasterUv(viewUv);
@@ -65,7 +65,7 @@ Endpoint TemporalPresentationEndpoint(const in vec2 viewUv) {
 
 void main() {
 	#if FOXY_TAA_ENABLED == 1
-		// Native temporal resolve owns the discrete current-grid center fetch.
+
 		vec3 currentWorld = vec3(0.0);
 	#else
 		vec2 renderUv = SrSceneSampleUv(texcoord);
@@ -76,13 +76,13 @@ void main() {
 		#endif
 	#endif
 	vec3 resolvedWorld = ResolveTemporalWorldEncoded(texcoord, currentWorld);
-	// Weather and particles composite after scene history.
+
 	vec2 transientRasterUv = TemporalCurrentRasterUv(texcoord);
 	vec4 transientLayer = texture2D(colortex3, SrSceneSampleUv(transientRasterUv));
 	float transientAlpha = Saturate(transientLayer.a);
 	Endpoint presentationEndpoint = TemporalPresentationEndpoint(texcoord);
 	StoreLayerEndpoint(texcoord, EndpointPack(presentationEndpoint));
-	// The selected current texture already contains resolved clouds.
+
 	vec3 presentation = transientLayer.rgb + resolvedWorld * (1.0 - transientAlpha);
 	gl_FragData[0] = vec4(presentation, 1.0);
 	#if FOXY_TAA_ENABLED == 1

@@ -173,8 +173,7 @@ void ResolveAccumulate(
 		SrLocalResourceUv(sourceUv, textureSize(colortex5, 0))
 	));
 
-	// Underwater samples may shorten to the endpoint; air may not cross silhouettes.
-	float behindDistance = sampleDistance - referenceDistance;
+float behindDistance = sampleDistance - referenceDistance;
 	float truncateThreshold = max(0.75, referenceDistance * 0.015);
 	if (isEyeInWater == 1 && sameEndpointClass > 0.5 && behindDistance > truncateThreshold) {
 		float distanceRatio = clamp(referenceDistance / max(sampleDistance, 1.0), 0.0, 1.0);
@@ -209,8 +208,7 @@ vec4 ResolveSpatialVolume(const in vec2 uv) {
 	vec4 bestVolume = vec4(0.0, 0.0, 0.0, 1.0);
 	float bestScore = -1.0;
 
-	// Current reconstruction favors nearest source texels at shadow boundaries.
-	for (int y = -1; y <= 1; y++) {
+for (int y = -1; y <= 1; y++) {
 		for (int x = -1; x <= 1; x++) {
 			vec2 sourceTexel = centerTexel + vec2(float(x), float(y));
 			vec2 delta = sourceTexel - sourcePos;
@@ -251,8 +249,7 @@ vec3 ResolveVolumeAndCloud(
 		return background * volume.a + volume.rgb;
 	}
 
-	// Split the endpoint volume integral at cloud depth to preserve medium ordering.
-	ResolveContext context = MakeResolveContext();
+ResolveContext context = MakeResolveContext();
 	float endpointDistance = max(
 		ResolveSceneDistance(foregroundEndpoint, context),
 		1.0e-4
@@ -318,7 +315,7 @@ vec3 ResolveApplyVanillaChunkBoundary(
 			colortex7,
 			SkyViewLutUv(worldRay)
 		).rgb);
-		// Sky fades retain the same air path as the background.
+
 		vec3 skyThroughAir = max(skyAirlight, vec3(0.0)) * Saturate(volume.a) + max(volume.rgb, vec3(0.0));
 		return mix(scene, skyThroughAir, fade);
 	#else
@@ -353,8 +350,7 @@ void main() {
 	vec4 volume = ResolveSpatialVolume(texcoord);
 	gl_FragData[0] = EncodeVolumeBuffer(volume);
 
-	// Main TAA exclusively owns volume history; colortex0 is the HDR staging target.
-	vec2 sceneUv = SrSceneSampleUv(texcoord);
+vec2 sceneUv = SrSceneSampleUv(texcoord);
 	vec3 world = max(DecodeSceneColor(texture2D(colortex14, sceneUv).rgb), vec3(0.0));
 	Endpoint foregroundEndpoint = ResolveCurrentEndpoint(texcoord);
 	float cloudVisible;

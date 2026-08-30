@@ -65,7 +65,6 @@ uniform int frameCounter;
 #define SSPT_FILTER_TILE_SIDE (SSPT_FILTER_GROUP_SIZE + SSPT_FILTER_RADIUS * 2)
 #define SSPT_FILTER_TILE_AREA (SSPT_FILTER_TILE_SIDE * SSPT_FILTER_TILE_SIDE)
 
-// Sparse stages alternate axial support; the widest stage closes angular support.
 #ifdef FOXY_SSPT_ATROUS_FULL_KERNEL
 
 	#define SSPT_CENTER_WEIGHT 0.2500
@@ -84,12 +83,12 @@ uniform int frameCounter;
 
 #if FOXY_SSPT_ATROUS_SHARED == 1
 shared vec4 ssptSharedSignal[SSPT_FILTER_TILE_AREA];
-// Shared guides keep decoded normals and scalar positions.
+
 shared vec4 ssptSharedViewGuide[SSPT_FILTER_TILE_AREA];
 shared float ssptSharedViewPositionX[SSPT_FILTER_TILE_AREA];
 shared float ssptSharedViewPositionY[SSPT_FILTER_TILE_AREA];
 shared float ssptSharedViewPositionZ[SSPT_FILTER_TILE_AREA];
-// Valid ages are [1,15]; age zero is the shared-path invalid marker.
+
 shared float ssptSharedMetaAge[SSPT_FILTER_TILE_AREA];
 shared float ssptSharedMetaSurfaceClass[SSPT_FILTER_TILE_AREA];
 shared float ssptSharedFirstPerson[SSPT_FILTER_TILE_AREA];
@@ -98,7 +97,6 @@ shared vec4 ssptSharedMoments[SSPT_FILTER_TILE_AREA];
 	#endif
 #endif
 
-// Per-invocation reconstruction constants shared by all taps.
 ivec2 ssptAtrousFilterSize;
 ivec2 ssptAtrousRenderSize;
 vec2 ssptAtrousRayToRenderScale;
@@ -266,6 +264,11 @@ float SsptAtrousFirstPerson(
 	const in ivec2 tracePixel,
 	const in vec4 meta
 ) {
+	float dynamicSurface = 1.0 - step(
+		0.5,
+		abs(RtDenoiserMetaSurfaceClass(meta) - PT_SURFACE_DYNAMIC)
+	);
+	if (dynamicSurface < 0.5) return 0.0;
 	ivec2 primaryPixel = SrRayPrimaryPixelScaled(
 		tracePixel,
 		ssptAtrousRayToRenderScale,
@@ -273,11 +276,7 @@ float SsptAtrousFirstPerson(
 		int(floor(RtDenoiserMetaPrimaryOffsetIndex(meta) + 0.5))
 	);
 	float rawDepth = texelFetch(depthtex0, primaryPixel, 0).r;
-	float dynamicSurface = 1.0 - step(
-		0.5,
-		abs(RtDenoiserMetaSurfaceClass(meta) - PT_SURFACE_DYNAMIC)
-	);
-	return FirstPersonDepthMask(rawDepth) * dynamicSurface;
+	return FirstPersonDepthMask(rawDepth);
 }
 
 float SsptAtrousThinSurface(const in float surfaceClass) {
@@ -361,7 +360,7 @@ void SsptAtrousTap(
 		sampleSurfaceClass = RtDenoiserMetaSurfaceClass(sampleMeta);
 		markerValid = RtDenoiserMetaValid(sampleMeta);
 	#endif
-	// Only pass zero consumes unvalidated temporal payloads.
+
 	#if FOXY_SSPT_ATROUS_PASS == 0 && !defined(FOXY_SSPT_ATROUS_BOOTSTRAP_INPUT)
 		#if FOXY_SSPT_ATROUS_SHARED == 1
 			bool sampleFinite = RtDenoiserFinite4(sampleSignal)
@@ -476,7 +475,7 @@ void SsptAtrousTap(
 		planeExponent - abs(sampleLuminance - centerLuminance) * luminanceRejection /
 		max(luminancePhi, 1.0e-4) + relativeLuminanceExponent
 	);
-	// Pass zero owns the persistent planar-support marker.
+
 	#if FOXY_SSPT_ATROUS_PASS == 0
 		geometrySupportSum += kernelWeight * markerValid * guideWeight * normalWeight * classBoundaryWeight;
 	#endif
@@ -494,7 +493,7 @@ void main() {
 	if (any(greaterThanEqual(pixel, filterSize))) return;
 
 	#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_IRC_MODE == 1
-		// IRC bypasses spatial filtering and preserves its payload.
+
 		SsptAtrousStore(pixel, SsptAtrousSource(pixel));
 		return;
 	#endif

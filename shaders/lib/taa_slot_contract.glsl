@@ -1,20 +1,8 @@
 #ifndef FOXY_TAA_SLOT_CONTRACT_GLSL
 #define FOXY_TAA_SLOT_CONTRACT_GLSL
 
-// Algorithm-independent temporal insertion contract. The public surface is
-// assembled before the algorithm from opaque MAIN/DH ownership and the current
-// water segment. Cloud presentation, material IDs, SSPT history, and the
-// cloud history are not algorithm inputs.
-//
-// A first-person hand/item is not a second scene layer: Minecraft writes it
-// into the canonical depth buffer with a compressed clip-space depth range.
-// Treat it as a camera-relative projection domain here, before endpoint and
-// reprojection work without consuming a composite pass or exposing a
-// hand-specific input to a future TAA algorithm.
-
 #include "/lib/contracts/endpoint.glsl"
 
-// Negative alpha distinguishes valid history from the zero-cleared buffer.
 const float FOXY_TAA_SLOT_HISTORY_DEPTH_BASE = 0.25;
 const float FOXY_TAA_SLOT_HISTORY_DEPTH_SCALE = 0.50;
 const float FOXY_TAA_SLOT_FIRST_PERSON_DEPTH_CUTOFF = 0.56;
@@ -58,7 +46,7 @@ float TaaSlotDepthMetric(const in float viewDistance, const in float valid) {
 	if (valid < 0.5) return 1.0;
 	float sceneReach = max(SceneReach(max(far, 1.0)), 1.0);
 	float metric = log2(1.0 + max(viewDistance, 0.0)) / log2(1.0 + sceneReach);
-	// Reserve exact 1.0 for sky/unoccupied pixels after half-float packing.
+
 	return clamp(metric, 0.0, 0.998);
 }
 
@@ -68,9 +56,8 @@ float TaaSlotIsFirstPersonDepth(const in float rawDepth) {
 
 float TaaSlotProjectionDepth(const in float rawDepth, const in float firstPerson) {
 	if (firstPerson < 0.5) return rawDepth;
-	// MC_HAND_DEPTH is supplied by the shader runtime.  Hand depth is encoded
-	// in its reduced NDC range and must be restored before inverse projection.
-	float ndcDepth = rawDepth * 2.0 - 1.0;
+
+float ndcDepth = rawDepth * 2.0 - 1.0;
 	return clamp(ndcDepth / MC_HAND_DEPTH * 0.5 + 0.5, 0.0, 1.0 - 1.0e-6);
 }
 
@@ -86,27 +73,20 @@ TaaSlotSurface TaaSlotLoadSurface(const in vec2 rasterUv) {
 		renderSize - ivec2(1)
 	);
 	vec2 resourceUv = (vec2(depthTexel) + 0.5) / vec2(depthTextureSize);
-	// Raster UV carries the subpixel phase used for motion, while depth/water/DH
-	// ownership must be fetched from one discrete producer texel. Bilinear depth
-	// here would manufacture surfaces at every silhouette.
-	surface.mainRawDepth = texelFetch(depthtex0, depthTexel, 0).r;
+
+surface.mainRawDepth = texelFetch(depthtex0, depthTexel, 0).r;
 	surface.firstPerson = TaaSlotIsFirstPersonDepth(surface.mainRawDepth);
 	WaterSegment waterSegment = WaterSegmentUnpack(LoadWaterSegment(resourceUv));
-	// depthtex0 may contain the translucent water depth itself. Comparing the
-	// producer against that nearly identical reconstructed distance creates a
-	// wave-shaped green/cyan classification pattern. For water candidates use
-	// the pre-translucent opaque depth; all other surfaces retain depthtex0.
-	float opaqueRawDepth = texelFetch(depthtex1, depthTexel, 0).r;
+
+float opaqueRawDepth = texelFetch(depthtex1, depthTexel, 0).r;
 	float surfaceRawDepth = mix(
 		surface.mainRawDepth,
 		opaqueRawDepth,
 		waterSegment.valid * (1.0 - surface.firstPerson)
 	);
 	surface.projectionRawDepth = TaaSlotProjectionDepth(surfaceRawDepth, surface.firstPerson);
-	// Rebuild the current sample directly from canonical depth. This keeps the
-	// algorithm input in the same raster/view domain as colortex14 and avoids
-	// coupling it to the separately cached cloud-presentation endpoint.
-	surface.endpoint = ResolveOpaqueEndpoint(
+
+surface.endpoint = ResolveOpaqueEndpoint(
 		surface.viewUv,
 		resourceUv,
 		surface.projectionRawDepth,
@@ -126,10 +106,8 @@ TaaSlotSurface TaaSlotLoadSurface(const in vec2 rasterUv) {
 	surface.viewDistance = surface.valid > 0.5
 		? surface.endpoint.viewDistance
 		: FOXY_ENDPOINT_INFINITY;
-	// This is a generic confidence input, not a hard rejection policy. Water
-	// receives temporal accumulation with reduced confidence; first-person
-	// animation is current-only because no previous model transform is exposed.
-	surface.reactive = max(surface.firstPerson, surface.water * 0.65);
+
+surface.reactive = max(surface.firstPerson, surface.water * 0.65);
 	return surface;
 }
 
@@ -149,10 +127,8 @@ void TaaSlotClosestDepth(
 		ivec2(-1,  0),                 ivec2(1,  0),
 		ivec2(-1,  1), ivec2(0,  1), ivec2(1,  1)
 	);
-	// Selection uses the resolve's 3x3 MAIN depth neighborhood, followed by
-	// one complete MAIN/DH/water decode for the winner. Equal depths retain the
-	// center, so sky and MAIN-empty DH regions cannot randomly exchange taps.
-	centerSurface = TaaSlotLoadSurface(centerUv);
+
+centerSurface = TaaSlotLoadSurface(centerUv);
 	closestSurface = centerSurface;
 	centerMetric = TaaSlotDepthMetric(centerSurface.viewDistance, centerSurface.valid);
 	closestTap = 0.0;
@@ -178,7 +154,7 @@ void TaaSlotClosestDepth(
 vec4 TaaSlotPreviousViewPosition(const in vec3 currentViewPosition, const in float firstPerson) {
 	vec4 player = gbufferModelViewInverse * vec4(currentViewPosition, 1.0);
 	player.xyz /= TaaSlotSafeDivisor(player.w);
-	// First-person geometry is camera-relative and excludes world translation.
+
 	player.xyz += (cameraPosition - previousCameraPosition) * (1.0 - firstPerson);
 	return gbufferPreviousModelView * vec4(player.xyz, 1.0);
 }
@@ -194,21 +170,14 @@ TaaSlotReprojection TaaSlotBuildReprojection(const in vec2 centerUv) {
 	TaaSlotSurface centerSurface;
 	TaaSlotSurface closestSurface;
 	TaaSlotClosestDepth(centerUv, centerSurface, closestSurface, result.closestTap, result.currentMetric);
-	// First-person mesh animation has no previous-model transform supplied by
-	// Minecraft.  Preserve this domain bit for the temporal resolve policy:
-	// write current history, but never blend stale hand/item history back in.
-	result.firstPerson = centerSurface.firstPerson;
+
+result.firstPerson = centerSurface.firstPerson;
 	result.water = centerSurface.water;
 
-	// History lives on the stable output grid. The current raster phase is
-	// removed in TaaSlotLoadSurface; previous jitter must not be re-added.
-	vec2 previousJitterUv = vec2(0.0);
+vec2 previousJitterUv = vec2(0.0);
 	vec4 previousClip;
 
-	// A closest-depth tap may cross the hand/world projection-domain boundary.
-	// It is conservative within a domain, but invalid across domains: retain
-	// the center motion in that case instead of smearing hand motion onto world.
-	TaaSlotSurface motionSurface = closestSurface;
+TaaSlotSurface motionSurface = closestSurface;
 	if (abs(closestSurface.firstPerson - centerSurface.firstPerson) > 0.5) {
 		motionSurface = centerSurface;
 	}
@@ -231,10 +200,7 @@ TaaSlotReprojection TaaSlotBuildReprojection(const in vec2 centerUv) {
 		);
 	}
 
-	// The closest surface supplies a conservative camera-motion vector, but
-	// history depth belongs to the center pixel.  Using the closest surface for
-	// both would reject every static silhouette even when reprojection is exact.
-	if (centerSurface.valid < 0.5) {
+if (centerSurface.valid < 0.5) {
 		result.expectedPreviousMetric = 1.0;
 	} else {
 		vec3 centerViewPosition = EndpointViewPosition(

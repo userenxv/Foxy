@@ -50,10 +50,8 @@ void main() {
 	}
 
 	if (TransmissionIsGlass(vertexMaterialId)) {
-		// shadowtex0 supplies the nearest translucent depth while shadowtex1 keeps
-		// opaque visibility authoritative. RGB is pure optical transmittance, so
-		// the lighting pass can multiply it directly in every ray mode.
-		vec3 transmission = TransmissionColor(vertexMaterialId);
+
+vec3 transmission = TransmissionColor(vertexMaterialId);
 		gl_FragColor = vec4(clamp(transmission, vec3(0.02), vec3(0.96)), 1.0);
 		return;
 	}

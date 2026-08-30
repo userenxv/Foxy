@@ -81,7 +81,6 @@ varying float vertexMoonAltitude;
 	#include "/lib/contracts/voxy.glsl"
 #endif
 
-// Import VRTGI geometry without its compute entry point or image uniforms.
 #if FOXY_VOXEL_GI_ACTIVE == 1 && (FOXY_VOXEL_TRACING == 1 || (FOXY_MATERIAL_REFLECTIONS == 1 && FOXY_MATERIAL_REFLECTION_GLOBAL == 1))
 	#if FOXY_MATERIAL_REFLECTIONS == 1 && FOXY_MATERIAL_REFLECTION_GLOBAL == 1
 		#define FOXY_MATERIAL_REFLECTION_GLOBAL_DIRECT_LIGHT
@@ -174,8 +173,7 @@ vec3 WorldNormalFromDepth1(const in vec2 uv, const in float centerDepth) {
 	vec3 posD = ViewPosFromDepth(uvD, depthD);
 	vec3 posU = ViewPosFromDepth(uvU, depthU);
 
-	// Compare in reconstructed camera space; Iris `far` may use a shorter domain.
-	float dl = abs(posL.z - center.z);
+float dl = abs(posL.z - center.z);
 	float dr = abs(posR.z - center.z);
 	float dd = abs(posD.z - center.z);
 	float du = abs(posU.z - center.z);
@@ -284,7 +282,7 @@ float WaterSceneLinearDepth(
 	out float surfaceValid
 ) {
 	#if defined(VOXY)
-		// Endpoint Y stores projection-neutral linear view depth for water SSR.
+
 		Endpoint sceneEndpoint = EndpointUnpack(
 			LoadOpaqueEndpoint(SceneRenderUv(viewUv))
 		);
@@ -425,7 +423,7 @@ vec3 ApplyLightweightGlass(
 	float transmissionMax = max(max(transmission.r, transmission.g), transmission.b);
 	float transmissionMin = min(min(transmission.r, transmission.g), transmission.b);
 	float transmissionChroma = transmissionMax - transmissionMin;
-	// Glass uses exponential absorption rather than painted alpha.
+
 	float tintSignal = max(transmissionChroma, 1.0 - transmissionMax);
 	float opticalDensity = mix(0.55, 2.20, Saturate(tintSignal * 1.35));
 	vec3 absorption = exp2((transmission - vec3(1.0)) * opticalDensity);
@@ -542,8 +540,7 @@ float VoxelCasterVisibility(
 		cameraPosition
 	);
 
-	// One stochastic DDA sample matches the native PCF footprint through TAA.
-	float phase = ShadowTemporalPhase(gl_FragCoord.xy, frameCounter);
+float phase = ShadowTemporalPhase(gl_FragCoord.xy, frameCounter);
 	float diskRadius = sqrt(fract(phase * 1.32471795724 + 0.37));
 	vec2 diskSample = ShadowDirection(phase) * diskRadius;
 	vec3 basisSeed = abs(lightWorldDirection.y) < 0.999
@@ -732,7 +729,7 @@ vec3 ApplyVoxyOpaqueShadow(
 		16
 	);
 	if (visibility > 0.999) return sceneColor;
-	// Match binary Voxy blockers to average filtered near-field visibility.
+
 	visibility = mix(1.0, visibility, 0.88);
 
 	vec3 unshadowed = voxySurfaceData.albedo * max(ambient + direct, vec3(0.00015));
@@ -768,7 +765,7 @@ vec3 ApplyVoxyOpaqueShadow(
 #endif
 
 void main() {
-	// composite2 consumes raster UV; viewTexcoord identifies the stable camera ray.
+
 	vec2 rasterTexcoord = texcoord;
 	vec2 viewTexcoord = WaterCurrentViewUv(rasterTexcoord);
 	vec2 renderTexcoord = SceneRenderUv(rasterTexcoord);
@@ -788,7 +785,7 @@ void main() {
 		abs(waterPacket.owner - FOXY_ENDPOINT_OWNER_MAIN_WATER) < 0.5
 		&& MaterialIsWater(waterMaterialPacket) > 0.5
 	) {
-		// Rebuild unordered water image writes from the depth-tested nearest surface.
+
 		float mainWaterDepthRaw = texture2D(depthtex0, renderTexcoord).r;
 		if (mainWaterDepthRaw < 0.99999) {
 			vec3 mainWaterViewPos = ViewPosFromDepth(viewTexcoord, mainWaterDepthRaw);
@@ -807,7 +804,7 @@ void main() {
 		LoadOpaqueEndpoint(SceneRenderUv(viewTexcoord))
 	);
 	#if defined(FOXY_DIM_NETHER) || defined(FOXY_DIM_END)
-		// Voxy leaves vanilla depth empty; the resolved endpoint owns the sky test.
+
 		if (EndpointValid(opaqueEndpoint) < 0.5) {
 			scene.rgb = EncodeSceneColor(DimensionBackground(viewTexcoord));
 		}
@@ -873,7 +870,7 @@ void main() {
 			);
 		#endif
 		#if FOXY_VOLUMETRIC_LIGHT == 0
-			// Without volume resolve, colortex14 is the complete TAA source.
+
 			vec3 completeCurrent = max(DecodeSceneColor(scene.rgb), vec3(0.0));
 			if (glassPresent <= 0.5) {
 				completeCurrent = CloudLayerOverScene(
@@ -934,7 +931,7 @@ void main() {
 	vec3 wavedNormalView = MaterialWaterNormal(waterMaterialPacket);
 	#if defined(VOXY)
 		if (abs(waterOwner - FOXY_ENDPOINT_OWNER_VOXY_WATER) < 0.5) {
-			// Voxy water normals already use main optical space.
+
 			baseNormalView = wavedNormalView;
 			#if FOXY_WATER_SPECTRUM_WAVES == 1
 				vec3 baseNormalPlayer = normalize(mat3(gbufferModelViewInverse) * baseNormalView);
@@ -972,7 +969,7 @@ void main() {
 	float reflectionReflectance = mix(waterFresnel, internalReflectance, underwaterMix);
 	float reflectionUserScale = mix(0.30, 1.35, Saturate(FOXY_WATER_REFLECTION));
 	mask *= Saturate(reflectionReflectance * reflectionUserScale);
-	// Total internal reflection must not expose the unrefracted shoreline.
+
 	mask = mix(mask, waterPresent, totalInternalReflection);
 	vec3 reflectionUpView = dot(upView, -incidentView) < 0.0 ? -upView : upView;
 	float flatReflectionNoV = abs(dot(reflectionUpView, -incidentView));
@@ -1001,7 +998,7 @@ void main() {
 	if (isEyeInWater == 1) {
 		skyOpenness = 0.0;
 	}
-	// Screen-space misses use low-frequency local and directional environment light.
+
 	vec4 fallback = vec4(max(scene.rgb, vec3(0.0)) * 0.58, 0.78);
 	if (skyOpenness > 0.035) {
 		vec4 directionalFallback = SkyCloudReflectionFallback(
@@ -1026,8 +1023,7 @@ void main() {
 	reflectionSignal = ResolveWaterReflectionSignal(trace, fallback, waterRoughness, mask, resolvedWaveStability, resolvedMicrofacetVisibility);
 	float reflectionAmount = reflectionSignal.amount;
 
-
-	float grazingWater = pow(1.0 - NoV, 2.15);
+float grazingWater = pow(1.0 - NoV, 2.15);
 	float waterFogOcclusion = 0.0;
 	float refractionWeight = 0.0;
 	float refractionSurface = waterPresent * (0.84 + FOXY_WATER_WAVE_STRENGTH * 0.32);
@@ -1084,7 +1080,7 @@ void main() {
 		float waterFog = Saturate(FOXY_WATER_FOG);
 		float waterRayDistance = effectiveWaterRayDistance;
 		vec3 waterTransmittance = WaterTransmittance(waterRayDistance * mix(1.15, 2.10, waterFog), waterFog);
-		// Water direct transport follows atmospheric, not disc, horizon visibility.
+
 		float solarLightingVisibility = DirectCelestialVisibility(sunAltitude);
 		float moonLightingVisibility = DirectCelestialVisibility(vertexMoonAltitude);
 		float solarIrradiance = WaterSolarIrradiance(vertexSunLightColor, sunAltitude);
@@ -1141,7 +1137,7 @@ void main() {
 	vec3 baseScene = mix(scene.rgb, transmitted, Saturate(refractionWeight));
 	float finalReflectionAmount = 0.0;
 	vec3 color = CompositeWaterReflection(baseScene, reflectionSignal, reflectionAmount, waterFogOcclusion, grazingWater, finalReflectionAmount);
-	// Add solar glint after refraction selects the water volume.
+
 	if (isEyeInWater == 0 && waterSunGlintSignal > 0.0001) {
 		color += max(vertexSunLightColor, vec3(0.0)) * waterSunGlintSignal;
 	}
@@ -1171,7 +1167,7 @@ void main() {
 		FOXY_ENDPOINT_MEDIUM_WATER
 	);
 	#if FOXY_VOLUMETRIC_LIGHT == 0
-		// Without volume resolve, add only clouds in front of the water endpoint.
+
 		color = CloudLayerOverScene(
 			color,
 			viewTexcoord,
@@ -1179,7 +1175,7 @@ void main() {
 			layerEndpoint
 		);
 	#endif
-	// composite8 completes cloud and volume when volumetrics are enabled.
+
 	StoreWaterSegment(renderTexcoord, WaterSegmentPack(waterSegment));
 	gl_FragData[0] = WaterStoreBufferColor(EncodeSceneColor(max(color, vec3(0.0))), scene.a);
 	#if FOXY_MATERIAL_REFLECTIONS == 1

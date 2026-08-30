@@ -150,11 +150,8 @@ vec3 EndpointViewRay(
 		abs(endpoint.owner - FOXY_ENDPOINT_OWNER_LOD_WATER) < 0.5) {
 		return BackendLodViewRay(viewUv);
 	}
-	// Voxy depth has already been decoded into a scalar distance at the backend
-	// boundary. All later endpoint consumers live on the shared view grid,
-	// so their direction must be the shared camera ray rather than a second
-	// application of Voxy's private raster projection.
-	return normalize(EndpointMainViewPosition(viewUv, 1.0, mainProjectionInverse));
+
+return normalize(EndpointMainViewPosition(viewUv, 1.0, mainProjectionInverse));
 }
 
 vec3 EndpointViewPosition(
@@ -178,9 +175,8 @@ vec4 EndpointPreviousClip(
 		abs(endpoint.owner - FOXY_ENDPOINT_OWNER_LOD_WATER) < 0.5) {
 		return BackendLodPreviousClip(previousViewPosition);
 	}
-	// History is a shared-screen resource. Voxy's previous projection is
-	// only meaningful for a Voxy-owned target, not this presentation history.
-	return mainPreviousProjection * previousViewPosition;
+
+return mainPreviousProjection * previousViewPosition;
 }
 
 Endpoint ResolveCloudEndpoint(

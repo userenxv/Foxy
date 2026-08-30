@@ -1,8 +1,6 @@
 #ifndef FOXY_CONTRACT_WATER_SURFACE_GLSL
 #define FOXY_CONTRACT_WATER_SURFACE_GLSL
 
-// Draw-buffer payload shared by native, DH and Voxy water writers.  This file
-// intentionally owns no depth, endpoint, image or sampler bindings.
 vec4 WaterSurfacePack(
 	const in vec3 encodedColor,
 	const in float alpha

@@ -24,10 +24,8 @@ float CloudCoverageDetailRange() {
 }
 
 float CloudCoverageVisibilityRange() {
-	// Visibility follows the atmospheric horizon; the GUI range only controls
-	// where full shape detail stops. 160 km in physical world space is beyond
-	// the natural cloud-shell intersection for normal camera altitudes.
-	return max(CloudCoverageDetailRange(), 160000.0 / CloudWorldScale());
+
+return max(CloudCoverageDetailRange(), 160000.0 / CloudWorldScale());
 }
 
 vec3 CloudWorldToReference(const in vec3 worldPos) {

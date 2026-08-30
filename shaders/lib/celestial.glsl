@@ -20,7 +20,7 @@ void StableSunMoonViewDirsFromUnitUp(
 	out vec3 stableSun,
 	out vec3 stableMoon
 ) {
-	// Iris celestial directions remain authoritative across shadow-caster switches.
+
 	stableSun = normalize(sunPosition);
 	stableMoon = normalize(moonPosition);
 }
@@ -47,7 +47,6 @@ vec3 StableMoonViewDir(const in vec3 sunPosition, const in vec3 moonPosition, co
 	return normalize(moonPosition);
 }
 
-// Mutually exclusive sun/moon confidence for the native shadow-map source.
 vec2 CelestialShadowSourceWeights(
 	const in vec3 shadowLightDir,
 	const in vec3 sunDir,

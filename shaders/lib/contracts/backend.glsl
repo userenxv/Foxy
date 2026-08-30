@@ -22,10 +22,8 @@ float BackendVoxyRenderScale() {
 
 vec2 BackendVoxyJitterUv() {
 #if FOXY_TEMPORAL_JITTER_ACTIVE == 1
-	// Voxy adds taa_offset in NDC after applying vxProj. Its normalized
-	// reduced-resolution depth UV therefore moves by half that offset divided
-	// by the configured render scale.
-	return taa_offset * (0.5 / BackendVoxyRenderScale());
+
+return taa_offset * (0.5 / BackendVoxyRenderScale());
 #else
 	return vec2(0.0);
 #endif
@@ -39,25 +37,15 @@ vec2 BackendVoxyViewUvFromRasterUv(const in vec2 rasterUv) {
 	return rasterUv - BackendVoxyJitterUv();
 }
 
-// Voxy depth attachments use the renderScale declared in voxy.json rather
-// than the display-sized scene-resource UV domain. Keep this conversion
-// independent of pass-local viewWidth/viewHeight uniforms so the backend can
-// be included before any consumer declarations.
 vec2 BackendVoxyViewUvFromSceneResourceUv(const in vec2 sampleUv) {
 	return clamp(sampleUv / BackendVoxyRenderScale(), vec2(0.0), vec2(0.999999));
 }
 
-// A Voxy depth texel is meaningful only on the Voxy raster coordinate that
-// selected it.  This is deliberately separate from logical view UVs: the two
-// differ while TAA/TAAU jitter is active.
 vec2 BackendVoxyDepthViewUv(const in vec2 sampleUv) {
 	return BackendVoxyViewUvFromSceneResourceUv(sampleUv);
 }
 #endif
 
-// Backend-owned bindings. No consumer declares LOD uniforms directly. Voxy
-// supplies a pair of depth surfaces and projection matrices through Iris;
-// this adapter only exposes the same contract already used by DH.
 #if defined(VOXY)
 uniform sampler2D vxDepthTexTrans;
 uniform sampler2D vxDepthTexOpaque;
@@ -122,10 +110,8 @@ vec3 BackendLodViewPosition(
 	const in float rawDepth
 ) {
 	#if FOXY_BACKEND_HAS_VOXY == 1
-		// vxProj is the unjittered projection. Voxy applies taa_offset separately
-		// in its vertex shader, so depth raster UV must return to logical view UV
-		// before inverse projection.
-		vec2 projectionUv = BackendVoxyViewUvFromRasterUv(viewUv);
+
+vec2 projectionUv = BackendVoxyViewUvFromRasterUv(viewUv);
 		vec4 clip = vec4(projectionUv * 2.0 - 1.0, rawDepth * 2.0 - 1.0, 1.0);
 		vec4 view = vxProjInv * clip;
 		float safeW = abs(view.w) < 1.0e-6
@@ -152,9 +138,6 @@ vec3 BackendLodViewRay(const in vec2 viewUv) {
 	#endif
 }
 
-// Shared water reflection, refraction, and wave functions operate in Iris's
-// main view space. Convert Voxy positions and normals exactly once here after
-// their owner-matched depth reconstruction; DH already shares that space.
 vec3 BackendLodViewToMainView(
 	const in vec3 lodViewPosition,
 	const in mat4 mainModelView
@@ -199,8 +182,6 @@ float BackendRenderDistance() {
 #endif
 }
 
-// The adapter owns the backend identity.  Consumers use this value only for
-// temporal identity checks; geometry and optical reach remain separate data.
 float BackendDomain() {
 	#if FOXY_BACKEND_HAS_VOXY == 1
 		return FOXY_BACKEND_DOMAIN_VOXY;
@@ -215,10 +196,6 @@ bool BackendHasLodSurface(const in float rawDepth) {
 	return rawDepth < 0.99999;
 }
 
-// A depth value is meaningful only together with the projection that created
-// it.  Keep that pairing here so later passes cannot accidentally decode a
-// Voxy depth with Iris's vanilla inverse projection.  The main scene always
-// wins: Voxy and DH only fill the deliberate vanilla-depth gap.
 struct BackendOpaqueSurface {
 	vec3 viewPosition;
 	float rawDepth;

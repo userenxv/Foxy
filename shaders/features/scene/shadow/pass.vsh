@@ -58,9 +58,8 @@ void main() {
 	surfaceWorldPosition = playerPos + cameraPosition;
 
 	#if FOXY_VOXEL_ACTIVE == 1
-		// Terrain solids use specialized programs; Colorwheel opaque geometry
-		// reaches this shared pass directly.
-		if (VOXEL_GEOMETRY_ELIGIBLE(entityId)) {
+
+if (VOXEL_GEOMETRY_ELIGIBLE(entityId)) {
 			vec3 modelPos = gl_Vertex.xyz + at_midBlock.xyz / 64.0;
 			vec3 centeredShadowView = (gl_ModelViewMatrix * vec4(modelPos, 1.0)).xyz;
 			vec3 centeredScenePos = (shadowModelViewInverse * vec4(centeredShadowView, 1.0)).xyz;

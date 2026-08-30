@@ -66,7 +66,7 @@ MaterialReflectionTrace TraceMaterialReflection(const in vec3 viewPos, const in 
 			float thickness = clamp(sceneDepth * 0.012 + abs(rayDepth - previousRayDepth) * 1.5, 0.12, 2.2);
 			float delta = rayDepth - sceneDepth;
 			if (delta >= -thickness * 0.25 && delta <= thickness) {
-				// Analytically refine validated front-to-back crossings.
+
 				float refinedT = t;
 				float crossingDenominator = delta - previousDelta;
 				if (previousValid > 0.5 && previousDelta < 0.0 && delta >= 0.0 && abs(crossingDenominator) > 1.0e-5) {
@@ -88,7 +88,7 @@ MaterialReflectionTrace TraceMaterialReflection(const in vec3 viewPos, const in 
 }
 
 #if FOXY_MATERIAL_REFLECTION_GLOBAL == 1 && FOXY_VOXEL_GI_ACTIVE == 1
-// Screen-space misses continue the same GGX sample through VRTGI.
+
 vec4 TraceGlobalMaterialReflection(
 	const in vec3 viewPos,
 	const in vec3 worldNormal,
@@ -125,7 +125,7 @@ vec4 TraceGlobalMaterialReflection(
 		? 1.0
 		: 0.0;
 	if (traceResult == FOXY_VOXEL_GI_TRACE_SURFACE_HIT) {
-		// Hit voxels never emit sky radiance.
+
 		vec3 neutralSkyMeanRadiance = vec3(0.0);
 		vec3 directLightView = normalize(shadowLightPosition);
 		vec3 directLightWorldDirection = normalize(

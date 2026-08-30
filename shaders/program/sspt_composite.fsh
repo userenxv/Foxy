@@ -12,7 +12,7 @@ layout(rgba16f) readonly uniform image2D img_ptHistoryMetaB;
 #include "/lib/math.glsl"
 #include "/lib/rt_denoiser.glsl"
 #include "/lib/first_person_depth.glsl"
-#if FOXY_VOXEL_GI_ACTIVE == 1
+#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_RAY_MODE != FOXY_RAY_IRC_SSPT
 	#include "/lib/contracts/sky_lut.glsl"
 	#include "/lib/dimension_sky.glsl"
 	#include "/lib/voxel/vrtgi_fallback.glsl"
@@ -27,10 +27,12 @@ uniform sampler2D depthtex0;
 uniform mat4 gbufferProjection;
 uniform mat4 gbufferProjectionInverse;
 uniform mat4 gbufferModelView;
-#if FOXY_VOXEL_GI_ACTIVE == 1
+#if FOXY_VOXEL_TRACING == 1
 	uniform mat4 gbufferModelViewInverse;
 	uniform vec3 cameraPosition;
-	uniform sampler2D colortex7;
+#endif
+#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_RAY_MODE != FOXY_RAY_IRC_SSPT
+uniform sampler2D colortex7;
 #endif
 uniform float viewWidth;
 uniform float viewHeight;
@@ -80,14 +82,17 @@ float SsptCompositeSafeDivisor(const in float value) {
 
 float SsptCompositeIndirectIntensity() {
 	#if FOXY_VOXEL_GI_ACTIVE == 1
-		#if FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI || FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
-			// Hybrid samples use the same scene-referred scale on both backends.
+		#if FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
+
+return 8.0;
+		#elif FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI
+
 			return clamp(FOXY_SSPT_BOUNCE_BRIGHTNESS, 0.0, 15.0);
 		#else
 		#if defined(FOXY_DIM_END)
 			return clamp(FOXY_VOXEL_GI_INTENSITY, 0.0, 3.0) * 8.0;
 		#else
-		// Restore VXGI's 1/8 history storage scale.
+
 		return clamp(FOXY_VOXEL_GI_INTENSITY, 0.0, 3.0) *
 			(8.0 * FOXY_VXGI_MASTER_CALIBRATION);
 		#endif
@@ -97,7 +102,7 @@ float SsptCompositeIndirectIntensity() {
 	#endif
 }
 
-#if FOXY_VOXEL_GI_ACTIVE == 1
+#if FOXY_VOXEL_TRACING == 1
 float SsptCompositeVrtgiDomainWeight(
 	const in vec2 viewUv,
 	const in float depthRaw,
@@ -146,11 +151,10 @@ float SsptCompositeThinSurface(const in float surfaceClass) {
 }
 
 float SsptCompositeDiffuseReceiver(const in float surfaceClass) {
-	// Emissive payload color is not diffuse reflectance.
+
 	return 1.0 - PtSurfaceIsEmissive(surfaceClass);
 }
 
-// Cutout plants use a strand-envelope reconstruction guide, not a shading normal.
 vec3 SsptCompositeThinViewNormal(const in vec3 viewPosition) {
 	float viewLengthSquared = dot(viewPosition, viewPosition);
 	if (viewLengthSquared <= 1.0e-6) return vec3(0.0, 0.0, 1.0);
@@ -266,8 +270,6 @@ void SsptCompositeTap(
 	weightSum += weight;
 }
 
-// At unresolved silhouettes, reuse only the owning ray sample across a static
-// one-pixel same-material boundary; spatial taps retain strict plane tests.
 void SsptCompositeOwnCellFallback(
 	const in ivec2 centerPixel,
 	const in ivec2 historySize,
@@ -357,7 +359,7 @@ void main() {
 	#endif
 
 	#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_IRC_MODE == 1
-		// IRC reads its owning ray cell without SVGF reconstruction.
+
 		ivec2 ircSignalSize = max(SsptCompositeSignalSize(), ivec2(1));
 		ivec2 ircSignalPixel = SrRayPixelFromRenderPixel(
 			centerPixel,
@@ -381,7 +383,7 @@ void main() {
 			fallbackSkyFluence
 		);
 		ircIncoming = mix(fallbackIncoming, ircIncoming, ircWeight);
-		// IRC adds cache lighting to the normal raster scene.
+
 		vec3 ircSceneColor = DecodeSceneColor(sceneSample.rgb);
 		ircSceneColor += ircIncoming * centerGbuffer.albedo *
 			SsptCompositeIndirectIntensity();
@@ -493,7 +495,7 @@ void main() {
 		bestFound = 0.0;
 		acceptedTapCount = 0.0;
 		ivec2 wideCenter = ivec2(floor(historyPosition + vec2(0.5)));
-		// Planar surfaces use 3x3 recovery; foliage and thin geometry use 5x5.
+
 		int fallbackRadius = centerGbuffer.surfaceClass < 0.5 ? 1 : 2;
 		for (int offsetY = -2; offsetY <= 2; offsetY++) {
 			for (int offsetX = -2; offsetX <= 2; offsetX++) {
@@ -547,7 +549,7 @@ void main() {
 		#endif
 	}
 	#if FOXY_VOXEL_GI_ACTIVE == 0
-		// SSGI reconstruction falls back to the owning ray texel, never environment light.
+
 		if (bestFound < 0.5) {
 			ivec2 ownerPixel = SrRayPixelFromRenderPixel(
 				centerPixel,
@@ -569,9 +571,8 @@ void main() {
 				bounceBrightness * diffuseReceiver;
 		}
 		#if FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI
-			// Hybrid mode owns its fallback only when no screen/voxel history
-			// survived; a valid SSPT result must not be covered by AO fallback.
-			if (incomingValid < 0.5) {
+
+if (incomingValid < 0.5) {
 				vec3 fallbackSkyFluence = vec3(0.0);
 				#if !defined(FOXY_DIM_NETHER) && !defined(FOXY_DIM_END)
 					fallbackSkyFluence = DecodeBufferColor(texelFetch(

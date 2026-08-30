@@ -117,7 +117,7 @@ void main() {
 	if (any(greaterThanEqual(pixel, signalSize))) return;
 
 	#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_IRC_MODE == 1
-		// IRC bypasses outlier limiting and preserves its handoff marker.
+
 		imageStore(img_ptFiltered, pixel, imageLoad(img_ptFilteredA, pixel));
 		return;
 	#endif
@@ -159,7 +159,7 @@ void main() {
 	float limiter = min(1.0, visibleCap / max(center, 1.0e-5));
 
 	#if FOXY_SSPT_DENOISE_QUALITY == 1
-		// Release depends monotonically on history age only.
+
 		float release = smoothstep(1.0, 8.0, RtDenoiserMetaAge(centerMeta));
 		limiter += (1.0 - limiter) * release;
 	#endif

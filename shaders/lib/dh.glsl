@@ -1,9 +1,6 @@
 #ifndef FOXY_DH_COMPATIBILITY_FACADE_GLSL
 #define FOXY_DH_COMPATIBILITY_FACADE_GLSL
 
-// Compatibility names for third-party includes.  All ownership and depth
-// behavior lives in the backend/endpoint contracts; this facade contains no
-// distance, radius, or material-marker heuristic.
 #include "/lib/contracts/endpoint.glsl"
 
 float DhDepth0(const in vec2 uv) {

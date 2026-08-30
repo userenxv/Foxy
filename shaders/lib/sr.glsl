@@ -47,18 +47,6 @@ vec2 SrActivePixelSize() {
 	return 1.0 / max(SrFullSize() * SrActiveRenderScale(), vec2(1.0));
 }
 
-// Coordinate-domain contract -------------------------------------------------
-//
-// View UV: logical camera/projection coordinates in [0, 1].
-// Scene resource UV: the packed lower-left scene rectangle in a display-sized
-// attachment (gbuffers, depth, DH, translucent layers and scene staging).
-// Local resource UV: a producer with its own attachment size (cloud source,
-// volume source, SSPT/AO) packed by the same scene scale in that attachment.
-// Presentation UV: full-resolution temporal history/output and post effects.
-//
-// Explicit domains prevent scene, local, and presentation resources from
-// being sampled with interchangeable coordinates.
-
 vec2 SrSceneResourceMaxUv() {
 	return SrActiveRenderScale();
 }
@@ -128,13 +116,6 @@ ivec2 SrActiveHalfSceneSize(const in ivec2 resourceSize) {
 	return min(SrHalfSceneSize(), max(resourceSize, ivec2(1)));
 }
 
-// Ray-domain contract --------------------------------------------------------
-//
-// FOXY_RAY_RESOLUTION is a compile-time shader option because Iris custom
-// images and compute dispatches must be resized together.  The helpers below
-// use the actual active image size so fractional presets and odd window sizes
-// partition every render pixel without gaps or overlaps.
-
 float SrRayScale() {
 	return clamp(FOXY_RAY_RESOLUTION, 0.25, 1.0);
 }
@@ -199,9 +180,6 @@ ivec2 SrRayPrimaryPixel(
 	);
 }
 
-// Hot denoiser paths reuse this scale for every tap.  Keeping the exact same
-// boundary formula while accepting the precomputed ratio avoids two divisions
-// for each history/filter lookup.
 ivec2 SrRayPrimaryPixelScaled(
 	const in ivec2 rayPixel,
 	const in vec2 rayToRenderScale,
@@ -253,10 +231,8 @@ bool SrInsideActiveRenderTexel(const in vec2 fragCoord) {
 
 void SrScaleClipPosition(inout vec4 position) {
 	#if FOXY_TAAU_ACTIVE == 1
-		// Iris exposes one display-sized viewport for the main scene. Pack the
-		// internal render domain into its lower-left sub-rectangle; scene
-		// consumers convert logical view UVs through SrSceneResourceUv().
-		vec2 scale = SrRenderScale();
+
+vec2 scale = SrRenderScale();
 		float safeW = abs(position.w) < 1.0e-6
 			? (position.w < 0.0 ? -1.0e-6 : 1.0e-6)
 			: position.w;

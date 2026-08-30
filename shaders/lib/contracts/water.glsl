@@ -34,9 +34,8 @@ vec3 WaterProducerDecodeNormalOct(const in vec2 encodedNormal) {
 }
 
 float WaterProducerPackBaseNormal(const in vec3 baseNormalView) {
-	// The producer image is RGBA32F. Two 12-bit octahedral components fit
-	// exactly in one float's integer mantissa (maximum value is 2^24 - 1).
-	vec2 encoded = floor(WaterProducerEncodeNormalOct(baseNormalView) * 4095.0 + 0.5);
+
+vec2 encoded = floor(WaterProducerEncodeNormalOct(baseNormalView) * 4095.0 + 0.5);
 	return encoded.x * 4096.0 + encoded.y;
 }
 
@@ -89,16 +88,13 @@ WaterProducerPacket ResolveWaterProducer(const in vec2 sampleUv) {
 #if defined(VOXY)
 	float voxyFrontRaw = BackendLodFrontRaw(sampleUv);
 	if (BackendHasLodSurface(voxyFrontRaw)) {
-		// Use the same Voxy raster coordinate for depth selection and inverse
-		// projection.  Logical view UV is intentionally not substituted here:
-		// it is offset from Voxy's depth grid while temporal jitter is active.
-		vec2 voxyViewUv = BackendVoxyDepthViewUv(sampleUv);
+
+vec2 voxyViewUv = BackendVoxyDepthViewUv(sampleUv);
 		vec3 voxyFrontView = BackendLodViewPosition(voxyViewUv, voxyFrontRaw);
 		WaterProducerPacket voxyPacket;
 		voxyPacket.frontRayDistance = length(voxyFrontView);
-		// Voxy's geometric face normal is already carried in its material packet;
-		// the composite owner branch installs it before adding local water detail.
-		voxyPacket.baseNormalView = vec3(0.0, 1.0, 0.0);
+
+voxyPacket.baseNormalView = vec3(0.0, 1.0, 0.0);
 		voxyPacket.backRayDistance = voxyPacket.frontRayDistance;
 		voxyPacket.owner = FOXY_ENDPOINT_OWNER_VOXY_WATER;
 		float voxyBackRaw = BackendLodSolidRaw(sampleUv);
@@ -144,11 +140,8 @@ vec3 WaterProducerViewPosition(
 	vec3 viewRay;
 	#if defined(VOXY)
 	if (abs(packet.owner - FOXY_ENDPOINT_OWNER_VOXY_WATER) < 0.5) {
-		// Keep the position on the exact Voxy raster ray which produced the
-		// translucent depth. Replacing this direction with the main camera ray
-		// changes world position every jitter phase and destabilizes both waves
-		// and reflection origins.
-		vec2 voxyViewUv = BackendVoxyDepthViewUv(sampleUv);
+
+vec2 voxyViewUv = BackendVoxyDepthViewUv(sampleUv);
 		vec3 voxyViewPosition = BackendLodViewRay(voxyViewUv) * max(packet.frontRayDistance, 0.0);
 		return BackendLodViewToMainView(voxyViewPosition, mainModelView);
 	} else

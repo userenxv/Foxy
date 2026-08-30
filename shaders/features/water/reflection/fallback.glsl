@@ -32,7 +32,7 @@ float WaterProjectedCloudLayer(
 	if (reflectedDir.z >= -0.015) {
 		return 0.0;
 	}
-	// CloudLayer always uses shared-screen coordinates.
+
 	vec4 clip = gbufferProjection * vec4(reflectedDir, 0.0);
 	if (clip.w <= 1.0e-5) {
 		return 0.0;
@@ -107,8 +107,7 @@ vec4 DirectionalSkyCloudReflection(
 				cloudAlpha *= 1.0 - smoothstep(cloudVisibilityRange * 0.72, cloudVisibilityRange, t);
 				cloudAlpha *= smoothstep(0.003, 0.10, skyDirection.y);
 
-				// Reflection lighting follows direct-source visibility, not disc visibility.
-				float solarLightingVisibility = DirectCelestialVisibility(sunAltitude);
+float solarLightingVisibility = DirectCelestialVisibility(sunAltitude);
 				vec3 activeLightView = normalize(mix(moonView, sunView, step(0.01, solarLightingVisibility)));
 				vec3 activeLightWorld = normalize(mat3(gbufferModelViewInverse) * activeLightView);
 				float lightFace = pow(Saturate(dot(skyDirection, activeLightWorld) * 0.5 + 0.5), 3.0);

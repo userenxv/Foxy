@@ -2,6 +2,7 @@
 #include "/lib/math.glsl"
 #include "/lib/celestial.glsl"
 #include "/lib/lighting.glsl"
+#include "/lib/emissive.glsl"
 
 uniform float viewWidth;
 uniform float viewHeight;
@@ -22,6 +23,7 @@ varying float waterWaveHeight;
 varying float isWater;
 varying float isIce;
 varying float vertexMaterialId;
+varying float vertexEmissionLevel;
 varying vec3 vertexSunLightColor;
 varying vec3 vertexMoonLightColor;
 varying vec3 vertexSkyAmbientColor;
@@ -29,6 +31,7 @@ varying float vertexSunAltitude;
 varying float vertexMoonAltitude;
 
 attribute vec4 mc_Entity;
+attribute vec4 at_midBlock;
 
 uniform mat4 gbufferModelViewInverse;
 uniform mat4 gbufferModelView;
@@ -47,6 +50,7 @@ void main() {
 	surfaceColor = gl_Color;
 	float entityId = mc_Entity.x;
 	vertexMaterialId = entityId;
+	vertexEmissionLevel = max(at_midBlock.w, 0.0);
 	float mappedWater = step(10007.5, entityId) * step(entityId, 10008.5);
 	float legacyWater = step(7.5, entityId) * step(entityId, 9.5);
 	float mappedIce = step(10078.5, entityId) * step(entityId, 10082.5);

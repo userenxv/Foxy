@@ -25,10 +25,8 @@ vec3 WindDisplacement(
 	float weather = Saturate(rain);
 	float exposure = Saturate(skyLight);
 	exposure *= exposure;
-	// Keep the base phase independent of rainStrength. Minecraft transitions
-	// rain smoothly but not predictably enough to use as a time multiplier;
-	// multiplying elapsed time by that value makes every blade jump phase.
-	float calmTime = time * 1.40;
+
+float calmTime = time * 1.40;
 	float stormTime = time * 4.20;
 	vec2 windDir = normalize(vec2(0.86, 0.51));
 	float broad = sin(dot(worldPos.xz, vec2(0.075, 0.052)) + calmTime);

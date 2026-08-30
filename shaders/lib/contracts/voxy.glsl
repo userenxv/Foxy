@@ -6,15 +6,6 @@
 #include "/lib/lighting.glsl"
 #include "/lib/sky.glsl"
 
-// Voxy's inverse projection is a pipeline-owned binding rather than an Iris
-// custom uniform, so keep its declaration in this shared Voxy contract. The
-// Iris custom uniforms are registered in shaders.properties and emitted from
-// the voxy.json uniform list.
-
-// Voxy rasterizes its program at the active Voxy viewport. vxProj/vxProjInv
-// remain unjittered: Voxy applies the JSON taaOffset only after projection in
-// its vertex shader. Convert the raster coordinate back to logical view UV
-// before any inverse projection.
 vec2 VoxyViewUv(
 	const in vec2 fragCoord,
 	const in vec2 viewPixelSize
@@ -28,8 +19,6 @@ vec2 VoxyViewUv(
 	return clamp(viewUv, vec2(0.0), vec2(0.999999));
 }
 
-// Voxy passes Iris block.properties IDs through customId. The material
-// table uses the same absolute IDs, so no 10000 offset is applied here.
 float VoxyMaterialId(const in uint customId) {
 	return customId >= 10000u ? float(customId) : 0.0;
 }
@@ -65,9 +54,6 @@ vec3 VoxyViewPosition(
 	return view.xyz / safeW;
 }
 
-// Voxy owns both sides of its view transform. A position reconstructed with
-// vxProjInv must return through vxModelViewInv; Iris' regular GBuffer matrix is
-// a different pipeline binding and cannot be mixed into this coordinate path.
 vec3 VoxyPlayerPosition(const in vec3 viewPos) {
 	return (vxModelViewInv * vec4(viewPos, 1.0)).xyz;
 }
@@ -107,11 +93,8 @@ void VoxyLighting(
 	vec3 moonColor = MoonColor(moonAltitude, rainStrength);
 	float sunNoL = max(dot(normalWorld, sunWorld), 0.0);
 	float moonNoL = max(dot(normalWorld, moonWorld), 0.0);
-	// Voxy's light-map sky channel is an occlusion signal, not the sky's
-	// time-of-day irradiance.  The native and DH paths keep a small physically
-	// motivated open-sky floor at dawn/dusk; using the raw channel here made
-	// distant Voxy terrain collapse to black while nearby terrain remained lit.
-	float ambientVisibility = AmbientSkyVisibility(sunAltitude, skyLight);
+
+float ambientVisibility = AmbientSkyVisibility(sunAltitude, skyLight);
 	ambient = SkyAmbientColor(sunAltitude, rainStrength) * ambientVisibility;
 	ambient += MoonAmbientColorFromMoonColor(moonColor) * ambientVisibility;
 	directSun = sunColor * DirectCelestialVisibility(sunAltitude) * (sunNoL * 1.08 + pow(sunNoL, 8.0) * 0.24) * skyLight;
@@ -121,9 +104,6 @@ void VoxyLighting(
 	ambient += TorchColor(blockLight) * 0.42;
 }
 
-// Voxy geometry is rendered outside the main far plane. Apply the same
-// sky-boundary transition used by native and DH terrain so the LOD border
-// fades into the current sky LUT instead of inheriting a gray far-fog color.
 vec3 VoxyApplyFog(
 	const in vec3 color,
 	const in vec3 fogColor,
