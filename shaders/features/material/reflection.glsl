@@ -64,7 +64,12 @@ struct MaterialReflectionTrace {
 	float skyVisible;
 };
 
-MaterialReflectionTrace TraceMaterialReflection(const in vec3 viewPos, const in vec3 reflectedDir, const in int traceSteps) {
+MaterialReflectionTrace TraceMaterialReflection(
+	const in vec3 viewPos,
+	const in vec3 reflectedDir,
+	const in int traceSteps,
+	const in bool deterministic
+) {
 	MaterialReflectionTrace trace;
 	trace.sampleUv = texcoord;
 	trace.hitCoverage = 0.0;
@@ -89,7 +94,9 @@ MaterialReflectionTrace TraceMaterialReflection(const in vec3 viewPos, const in 
 	float endK = 1.0 / SafeDivisor(endProjected.w);
 	vec2 startQzAndK = vec2(startView.z * startK, startK);
 	vec2 endQzAndK = vec2(endView.z * endK, endK);
-	float jitter = 0.35 + Hash12(floor(gl_FragCoord.xy)) * 0.45;
+	float jitter = deterministic
+		? fract(Hash12(floor(gl_FragCoord.xy) + vec2(17.0, 43.0)))
+		: 0.35 + Hash12(floor(gl_FragCoord.xy)) * 0.45;
 	float screenSpan = length(screenDelta * vec2(viewWidth, viewHeight));
 	int adaptiveSteps = clamp(
 		int(ceil(screenSpan / 12.0)),
@@ -157,7 +164,9 @@ MaterialReflectionTrace TraceMaterialReflection(const in vec3 viewPos, const in 
 vec4 TraceGlobalMaterialReflection(
 	const in vec3 viewPos,
 	const in vec3 worldNormal,
-	const in vec3 reflectedWorldDir
+	const in vec3 reflectedWorldDir,
+	const in bool materialSupplement,
+	const in bool smoothReflection
 ) {
 	vec3 originPlayerPos = (gbufferModelViewInverse * vec4(viewPos, 1.0)).xyz;
 	vec3 voxelRayOrigin = VoxelGridSceneToGrid(
@@ -171,11 +180,17 @@ vec4 TraceGlobalMaterialReflection(
 	vec3 hitNormal;
 	vec3 sphereRadiance;
 	vec3 rayTransmittance;
+	float traceDistance = smoothReflection
+		? 1.0e20
+		: min(FOXY_VOXEL_GI_MAX_DISTANCE, 48.0);
+	int traceIterations = smoothReflection
+		? min(FOXY_MATERIAL_REFLECTION_SMOOTH_STEPS, FOXY_VOXEL_GI_TRACE_ITERATIONS)
+		: min(FOXY_VOXEL_GI_TRACE_ITERATIONS, 48);
 	int traceResult = VoxelGiTrace(
 		voxelRayOrigin,
 		reflectedWorldDir,
-		min(FOXY_VOXEL_GI_MAX_DISTANCE, 48.0),
-		min(FOXY_VOXEL_GI_TRACE_ITERATIONS, 48),
+		traceDistance,
+		traceIterations,
 		true,
 		hitPayload,
 		hitDistance,
@@ -190,8 +205,9 @@ vec4 TraceGlobalMaterialReflection(
 		? 1.0
 		: 0.0;
 	if (traceResult == FOXY_VOXEL_GI_TRACE_SURFACE_HIT) {
+		vec3 hitGridPosition = voxelRayOrigin + reflectedWorldDir * hitDistance;
 
-		vec3 neutralSkyMeanRadiance = vec3(0.0);
+		vec3 neutralSkyMeanRadiance = VoxelGiNeutralSkyMeanRadiance();
 		vec3 directLightView = normalize(shadowLightPosition);
 		vec3 directLightWorldDirection = normalize(
 			mat3(gbufferModelViewInverse) * directLightView
@@ -218,7 +234,7 @@ vec4 TraceGlobalMaterialReflection(
 				directLightCosine > 0.001 &&
 				hitSkyLight > 0.0001
 			) {
-				vec3 hitPosition = voxelRayOrigin + reflectedWorldDir * hitDistance;
+				vec3 hitPosition = hitGridPosition;
 				directLightRadiance = DecodeSkyLutColor(texelFetch(
 					colortex7,
 					SkyDirectSunColorTexel(),
@@ -231,16 +247,28 @@ vec4 TraceGlobalMaterialReflection(
 				);
 			}
 		#endif
-		vec3 hitRadiance = VoxelGiHitRadiance(
+		vec3 hitAlbedo = VoxelGiAlbedo(hitPayload);
+		#if FOXY_MATERIAL_REFLECTION_OFFSCREEN == 1
+			if (materialSupplement) {
+				vec3 atlasAlbedo = VoxelMaterialColorLoad(
+					hitCell,
+					VoxelGridMaterial(hitPayload),
+					VoxelEncodeAxisNormal(hitNormal),
+					hitGridPosition,
+					hitNormal
+				);
+				if (Luma(atlasAlbedo) > 1.0e-4) hitAlbedo = atlasAlbedo;
+			}
+		#endif
+		vec3 hitRadiance = VoxelGiReflectionRadiance(
 			hitPayload,
-			VoxelGiAlbedo(hitPayload),
+			hitAlbedo,
 			hitNormal,
 			hitSkyLight,
 			neutralSkyMeanRadiance,
 			directLightRadiance,
 			directLightCosine,
 			directLightVisibility,
-			true,
 			1.0,
 			1.0
 		);
@@ -250,7 +278,7 @@ vec4 TraceGlobalMaterialReflection(
 		traceResult == FOXY_VOXEL_GI_TRACE_DOMAIN_EXIT ||
 		traceResult == FOXY_VOXEL_GI_TRACE_DISTANCE_LIMIT
 	) {
-		float skyTerminal = smoothstep(-0.08, 0.12, reflectedWorldDir.y);
+		float skyTerminal = smoothstep(-0.28, 0.20, reflectedWorldDir.y);
 		#if !defined(FOXY_DIM_NETHER) && !defined(FOXY_DIM_END)
 			if (skyTerminal > 0.0) {
 				reflectedRadiance += rayTransmittance * DecodeSkyLutColor(
@@ -310,11 +338,15 @@ vec4 TraceMaterialReflectionSignal(
 		geometricNormalView,
 		-incidentView
 	);
-	vec3 sampledDirection = MaterialRoughReflectionDirection(
-		incidentView,
-		normalView,
-		material.roughness
-	);
+	float reflectionType = MaterialReflectionType(perceptualRoughness);
+	bool smoothReflection = reflectionType < 1.5;
+	vec3 sampledDirection = smoothReflection
+		? normalize(reflect(incidentView, normalView))
+		: MaterialRoughReflectionDirection(
+			incidentView,
+			normalView,
+			material.roughness
+		);
 	vec3 reflectedDir = MaterialReflectionAboveSurface(
 		sampledDirection,
 		geometricNormalView
@@ -325,11 +357,16 @@ vec4 TraceMaterialReflectionSignal(
 	#if FOXY_MATERIAL_REFLECTION_HIGH_QUALITY == 0
 		traceSteps = min(traceSteps, 8);
 	#endif
-	MaterialReflectionTrace hit = TraceMaterialReflection(viewPos, reflectedDir, traceSteps);
+	MaterialReflectionTrace hit = TraceMaterialReflection(
+		viewPos,
+		reflectedDir,
+		traceSteps,
+		smoothReflection
+	);
 
 	float skyAccess = smoothstep(0.22, 0.82, material.lightmap.y);
 	skyAccess *= skyAccess;
-	float skyWeight = smoothstep(-0.08, 0.12, reflectedWorldDir.y) * skyAccess * hit.skyVisible;
+	float skyWeight = smoothstep(-0.28, 0.20, reflectedWorldDir.y) * skyAccess * hit.skyVisible;
 	vec3 localFallback = sceneColor * mix(0.055, 0.12, skyAccess);
 	vec3 fallback = localFallback;
 	if (skyWeight > 0.0) {
@@ -362,7 +399,9 @@ vec4 TraceMaterialReflectionSignal(
 			vec4 globalReflection = TraceGlobalMaterialReflection(
 				viewPos,
 				reflectionWorldNormal,
-				reflectedWorldDir
+				reflectedWorldDir,
+				FOXY_MATERIAL_REFLECTION_OFFSCREEN == 1,
+				smoothReflection
 			);
 			reflectedColor = mix(fallback, globalReflection.rgb, globalReflection.a);
 			reflectionConfidence = max(reflectionConfidence, globalReflection.a);
@@ -370,6 +409,51 @@ vec4 TraceMaterialReflectionSignal(
 	}
 	#endif
 	return vec4(max(reflectedColor, vec3(0.0)), clamp(reflectionConfidence, 0.0, 1.0));
+}
+
+vec4 TraceGlassMaterialReflectionSignal(
+	const in vec3 sceneColor,
+	const in vec2 viewUv,
+	const in vec2 renderUv,
+	const in vec4 glassPacket,
+	const in float glassDepth
+) {
+	vec3 viewPos = ViewPosFromDepth(viewUv, glassDepth);
+	vec3 incidentView = normalize(viewPos);
+	vec3 normalView = MaterialGlassNormal(glassPacket);
+	if (dot(normalView, -incidentView) < 0.0) normalView = -normalView;
+	vec3 reflectedDir = normalize(reflect(incidentView, normalView));
+	vec3 reflectedWorldDir = normalize(mat3(gbufferModelViewInverse) * reflectedDir);
+	MaterialReflectionTrace hit = TraceMaterialReflection(viewPos, reflectedDir, FOXY_MATERIAL_REFLECTION_STEPS, true);
+	vec3 fallback = max(sceneColor, vec3(0.0)) * 0.08;
+	float skyWeight = smoothstep(-0.28, 0.26, reflectedWorldDir.y);
+	if (skyWeight > 0.0) {
+		fallback = mix(
+			fallback,
+			DecodeSkyLutColor(texture2D(colortex7, SkyViewLutUv(reflectedWorldDir)).rgb),
+			skyWeight
+		);
+	}
+	vec3 reflectedColor = fallback;
+	float confidence = 0.12 * skyWeight;
+	if (hit.hit > 0.5) {
+		reflectedColor = mix(fallback, max(ReflectionSample(hit.sampleUv), vec3(0.0)), hit.hitCoverage);
+		confidence = hit.hitCoverage;
+	}
+	#if FOXY_MATERIAL_REFLECTION_GLOBAL == 1 && FOXY_VOXEL_GI_ACTIVE == 1
+	if (hit.hit < 0.5) {
+		vec4 globalReflection = TraceGlobalMaterialReflection(
+			viewPos,
+			normalize(mat3(gbufferModelViewInverse) * normalView),
+			reflectedWorldDir,
+			FOXY_MATERIAL_REFLECTION_OFFSCREEN == 1,
+			true
+		);
+		reflectedColor = mix(fallback, globalReflection.rgb, globalReflection.a);
+		confidence = max(confidence, globalReflection.a);
+	}
+	#endif
+	return vec4(max(reflectedColor, vec3(0.0)), clamp(confidence, 0.0, 1.0));
 }
 
 #endif

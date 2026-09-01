@@ -11,6 +11,7 @@ uniform float viewHeight;
 
 uniform sampler2D colortex2;
 uniform sampler2D depthtex1;
+uniform sampler2D depthtex0;
 #if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 0 || FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1
 	uniform sampler2D colortex14;
 #elif FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 2
@@ -50,6 +51,7 @@ struct MaterialReflectionGuide {
 	float surfaceClass;
 	float perceptualRoughness;
 	float metalness;
+	float reflectionType;
 	float valid;
 };
 
@@ -67,10 +69,9 @@ MaterialReflectionGuide DecodeMaterialReflectionGuide(
 	const in float depthRaw
 ) {
 	MaterialReflectionGuide guide;
-	float transparentSurface = max(
-		MaterialIsWater(surfaceData),
-		MaterialIsGlass(surfaceData)
-	);
+	float waterSurface = MaterialIsWater(surfaceData);
+	float glassSurface = MaterialIsGlass(surfaceData);
+	float transparentSurface = max(waterSurface, glassSurface);
 	vec2 albedoBFlags = PtUnpackUnorm2x8(surfaceData.y);
 	float materialBits = floor(albedoBFlags.y * 255.0 + 0.5);
 	float metalness = step(128.0, materialBits) * (1.0 - transparentSurface);
@@ -81,7 +82,18 @@ MaterialReflectionGuide DecodeMaterialReflectionGuide(
 	guide.perceptualRoughness = roughnessBits * (1.0 / 15.0);
 	guide.worldNormal = PtDecodeOctNormal(PtUnpackUnorm2x8(surfaceData.z));
 	guide.worldGeometricNormal = MaterialReflectionDecodeGeometricNormal(surfaceData.a);
+	guide.reflectionType = MaterialReflectionType(guide.perceptualRoughness);
 	guide.valid = (1.0 - step(0.99999, depthRaw)) * (1.0 - transparentSurface);
+	if (glassSurface > 0.5) {
+		vec3 glassNormalView = MaterialGlassNormal(surfaceData);
+		guide.worldNormal = normalize(mat3(gbufferModelViewInverse) * glassNormalView);
+		guide.worldGeometricNormal = guide.worldNormal;
+		guide.perceptualRoughness = 0.0;
+		guide.metalness = 0.0;
+		guide.surfaceClass = 0.0;
+		guide.reflectionType = FOXY_REFLECTION_TYPE_SMOOTH;
+		guide.valid = 1.0 - step(0.99999, depthRaw);
+	}
 	return guide;
 }
 
@@ -106,7 +118,11 @@ BackendOpaqueSurface MaterialReflectionOpaqueSurface(
 ) {
 	vec2 viewUv = MaterialReflectionViewUv(rasterUv);
 	vec2 renderUv = MaterialReflectionRenderUv(rasterUv);
-	float mainRawDepth = texture2D(depthtex1, renderUv).r;
+	vec4 packet = texture2D(colortex2, MaterialReflectionPayloadUv(rasterUv));
+	float glassSurface = MaterialIsGlass(packet);
+	float mainRawDepth = glassSurface > 0.5
+		? texture2D(depthtex0, renderUv).r
+		: texture2D(depthtex1, renderUv).r;
 	return BackendResolveOpaqueSurface(
 		viewUv,
 		renderUv,
@@ -152,15 +168,22 @@ float MaterialReflectionSurfaceEnabled(const in MaterialReflectionGuide material
 	);
 }
 
-float MaterialReflectionPow256(const in float value) {
-	float value2 = value * value;
-	float value4 = value2 * value2;
-	float value8 = value4 * value4;
-	float value16 = value8 * value8;
-	float value32 = value16 * value16;
-	float value64 = value32 * value32;
-	float value128 = value64 * value64;
-	return value128 * value128;
+float MaterialReflectionGeometricNormalWeight(
+	const in float normalDot,
+	const in float perceptualRoughness
+) {
+	float roughFactor = smoothstep(0.08, 0.72, perceptualRoughness);
+	float variance = mix(0.012, 0.085, roughFactor);
+	return exp2(-max(1.0 - normalDot, 0.0) / variance);
+}
+
+float MaterialReflectionShadingNormalWeight(
+	const in float normalDot,
+	const in float perceptualRoughness
+) {
+	float roughFactor = smoothstep(0.08, 0.72, perceptualRoughness);
+	float variance = mix(0.025, 0.22, roughFactor);
+	return exp2(-max(1.0 - normalDot, 0.0) / variance);
 }
 
 #if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1 || FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 2
@@ -172,7 +195,6 @@ vec4 FilterMaterialReflectionCross(
 	const in vec3 centerViewPosition
 ) {
 	vec4 centerSignal = MaterialReflectionFilterSource(centerRasterUv);
-
 	if (centerMaterial.perceptualRoughness <= 0.085) return centerSignal;
 	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1 || FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 2
 		vec2 sourceSize = vec2(textureSize(colortex14, 0));
@@ -234,10 +256,14 @@ vec4 FilterMaterialReflectionCross(
 		float signalValid = step(1.0e-7, max(sampleSignal.r, max(sampleSignal.g, sampleSignal.b)));
 		float weight = signalValid * MaterialReflectionSurfaceEnabled(sampleMaterial);
 		weight *= i == 0 ? 1.0 : 0.72;
-		weight *= MaterialReflectionPow256(
-			max(dot(centerMaterial.worldGeometricNormal, sampleMaterial.worldGeometricNormal), 0.0)
+		weight *= MaterialReflectionGeometricNormalWeight(
+			max(dot(centerMaterial.worldGeometricNormal, sampleMaterial.worldGeometricNormal), 0.0),
+			perceptualRoughness
 		);
-		weight *= pow(max(dot(centerMaterial.worldNormal, sampleMaterial.worldNormal), 0.0), mix(42.0, 16.0, perceptualRoughness));
+		weight *= MaterialReflectionShadingNormalWeight(
+			max(dot(centerMaterial.worldNormal, sampleMaterial.worldNormal), 0.0),
+			perceptualRoughness
+		);
 		weight *= exp2(-32.0 * abs(sampleLinearDepth - centerLinearDepth) / max(centerLinearDepth, 0.5));
 		weight *= exp2(-24.0 * abs(sampleMaterial.perceptualRoughness - perceptualRoughness));
 		signalSum += MaterialReflectionPowerEncode(sampleSignal.rgb, 0.5) * weight;
@@ -260,6 +286,7 @@ vec4 FilterMaterialReflection(
 	temporalLowerBound = vec3(0.0);
 	temporalUpperBound = vec3(65504.0);
 	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 3
+		if (centerMaterial.reflectionType < 1.5) return centerSignal;
 		vec3 encodedCurrent = ReflectionTemporalEncodeColor(centerSignal.rgb);
 		temporalLowerBound = max(encodedCurrent - vec3(1.25), vec3(0.0));
 		temporalUpperBound = encodedCurrent + vec3(1.25);
@@ -268,6 +295,7 @@ vec4 FilterMaterialReflection(
 	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 0
 		return centerSignal;
 	#endif
+	if (centerMaterial.reflectionType < 1.5) return centerSignal;
 
 	const vec2 offsets[9] = vec2[9](
 		vec2(-1.0, -1.0), vec2(0.0, -1.0), vec2(1.0, -1.0),
@@ -358,12 +386,18 @@ vec4 FilterMaterialReflection(
 			float gaussian = exp2(-0.5 * dot(offsets[i], offsets[i]) / 1.80);
 			spatialWeight *= gaussian;
 		#endif
-		float weight = spatialWeight * signalValid;
-		weight *= MaterialReflectionSurfaceEnabled(sampleMaterial);
-		weight *= MaterialReflectionPow256(
-			max(dot(centerMaterial.worldGeometricNormal, sampleMaterial.worldGeometricNormal), 0.0)
+		float surfaceWeight = MaterialReflectionSurfaceEnabled(sampleMaterial);
+		float weight = spatialWeight * signalValid * surfaceWeight;
+		float geometricWeight = MaterialReflectionGeometricNormalWeight(
+			max(dot(centerMaterial.worldGeometricNormal, sampleMaterial.worldGeometricNormal), 0.0),
+			perceptualRoughness
 		);
-		weight *= pow(max(dot(centerMaterial.worldNormal, sampleMaterial.worldNormal), 0.0), mix(42.0, 16.0, perceptualRoughness));
+		weight *= geometricWeight;
+		float shadingWeight = MaterialReflectionShadingNormalWeight(
+			max(dot(centerMaterial.worldNormal, sampleMaterial.worldNormal), 0.0),
+			perceptualRoughness
+		);
+		weight *= shadingWeight;
 		weight *= exp2(-32.0 * abs(sampleLinearDepth - centerLinearDepth) / max(centerLinearDepth, 0.5));
 		weight *= exp2(-24.0 * abs(sampleMaterial.perceptualRoughness - perceptualRoughness));
 		#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER > 0
@@ -429,10 +463,14 @@ vec4 FilterMaterialReflection(
 			float signalValid = step(1.0e-7, max(sampleSignal.r, max(sampleSignal.g, sampleSignal.b)));
 			float weight = signalValid * MaterialReflectionSurfaceEnabled(sampleMaterial);
 			weight *= i == 0 ? 1.0 : 0.72;
-			weight *= MaterialReflectionPow256(
-				max(dot(centerMaterial.worldGeometricNormal, sampleMaterial.worldGeometricNormal), 0.0)
+			weight *= MaterialReflectionGeometricNormalWeight(
+				max(dot(centerMaterial.worldGeometricNormal, sampleMaterial.worldGeometricNormal), 0.0),
+				perceptualRoughness
 			);
-			weight *= pow(max(dot(centerMaterial.worldNormal, sampleMaterial.worldNormal), 0.0), mix(42.0, 16.0, perceptualRoughness));
+			weight *= MaterialReflectionShadingNormalWeight(
+				max(dot(centerMaterial.worldNormal, sampleMaterial.worldNormal), 0.0),
+				perceptualRoughness
+			);
 			weight *= exp2(-32.0 * abs(sampleLinearDepth - centerLinearDepth) / max(centerLinearDepth, 0.5));
 			weight *= exp2(-24.0 * abs(sampleMaterial.perceptualRoughness - perceptualRoughness));
 			vec3 encoded = ReflectionTemporalEncodeColor(sampleSignal.rgb);
@@ -457,8 +495,10 @@ void main() {
 	vec2 rasterUv = texcoord;
 	vec2 viewUv = MaterialReflectionViewUv(rasterUv);
 	vec2 renderUv = MaterialReflectionRenderUv(rasterUv);
-	float depthRaw = texture2D(depthtex1, renderUv).r;
 	vec4 packedSurface = texture2D(colortex2, MaterialReflectionPayloadUv(rasterUv));
+	float depthRaw = MaterialIsGlass(packedSurface) > 0.5
+		? texture2D(depthtex0, renderUv).r
+		: texture2D(depthtex1, renderUv).r;
 	MaterialReflectionGuide material = DecodeMaterialReflectionGuide(packedSurface, depthRaw);
 	float enabled = MaterialReflectionSurfaceEnabled(material);
 
@@ -500,6 +540,29 @@ void main() {
 		);
 		vec3 currentViewPosition = opaqueSurface.viewPosition;
 		float linearDepth = max(-currentViewPosition.z, 0.0);
+		vec3 unusedTemporalLowerBound;
+		vec3 unusedTemporalUpperBound;
+		if (material.reflectionType < 1.5) {
+			vec3 sceneColor = max(DecodeSceneColor(staging.rgb), vec3(0.0));
+			vec4 currentReflection = FilterMaterialReflection(
+				rasterUv,
+				material,
+				linearDepth,
+				currentViewPosition,
+				unusedTemporalLowerBound,
+				unusedTemporalUpperBound
+			);
+			vec3 combined = ApplyMaterialReflection(
+				sceneColor,
+				viewUv,
+				renderUv,
+				packedSurface,
+				currentReflection
+			);
+			gl_FragData[0] = vec4(EncodeSceneColor(combined), staging.a);
+			gl_FragData[1] = vec4(0.0);
+			return;
+		}
 		vec3 temporalLowerBound;
 		vec3 temporalUpperBound;
 		vec4 filteredReflection = FilterMaterialReflection(
@@ -518,7 +581,7 @@ void main() {
 			filteredReflection.rgb,
 			filteredReflection.a,
 			currentAvailable,
-			2.0,
+			material.reflectionType,
 			material.perceptualRoughness,
 			material.worldNormal,
 			currentViewPosition,

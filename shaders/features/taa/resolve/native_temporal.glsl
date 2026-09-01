@@ -1,6 +1,14 @@
 #ifndef FOXY_NATIVE_TEMPORAL_GLSL
 #define FOXY_NATIVE_TEMPORAL_GLSL
 
+#include "/lib/contracts/material.glsl"
+#if FOXY_MATERIAL_REFLECTIONS == 1
+	#define PT_GBUFFER_READ
+	#include "/lib/pt_gbuffer.glsl"
+	#undef PT_GBUFFER_READ
+	#include "/features/material/reflection_policy.glsl"
+#endif
+
 #if FOXY_VOLUMETRIC_LIGHT == 1 && !defined(FOXY_DIM_NETHER) && !defined(FOXY_DIM_END)
 	#define FOXY_TAA_CURRENT_SCENE colortex0
 #else
@@ -8,6 +16,45 @@
 #endif
 
 vec4 FormalHistoryOutput = vec4(0.0);
+
+float NativeTemporalReflectionReactive(
+	const in vec4 surfaceData,
+	const in float depthRaw,
+	const in TaaSlotReprojection reprojection
+) {
+	float reflectionSurface = MaterialIsGlass(surfaceData);
+	#if FOXY_MATERIAL_REFLECTIONS == 1
+		PtGbufferSample material = PtDecodeGbuffer(surfaceData, depthRaw);
+		float perceptualRoughness = sqrt(Saturate(material.roughness));
+		float smoothReflection = 1.0 - step(
+			1.5,
+			MaterialReflectionType(perceptualRoughness)
+		);
+		float reflectionEnabled = MaterialReflectionSurfaceEnabled(
+			material.valid,
+			material.surfaceClass,
+			perceptualRoughness,
+			material.metalness
+		);
+		reflectionSurface = max(
+			reflectionSurface,
+			smoothReflection * reflectionEnabled
+		);
+	#endif
+	vec2 unjitteredMotionUv = reprojection.motionUv;
+	#if FOXY_TEMPORAL_JITTER_ACTIVE == 1
+		unjitteredMotionUv -= (temporalJitter - previousTemporalJitter) * 0.5;
+	#endif
+	float motionPixels = length(
+		unjitteredMotionUv * vec2(textureSize(colortex12, 0))
+	);
+	float cameraMotion = length(cameraPosition - previousCameraPosition);
+	float temporalMotion = max(
+		smoothstep(0.15, 1.25, motionPixels),
+		smoothstep(0.002, 0.035, cameraMotion)
+	);
+	return Saturate(reflectionSurface * temporalMotion);
+}
 
 vec3 NativeCompress(const in vec3 linearColor) {
 	vec3 safeColor = max(linearColor, vec3(0.0));
@@ -223,6 +270,18 @@ vec3 ResolveTemporalWorldEncoded(
 	#else
 		float historyWeight = FOXY_TAA_HISTORY_WEIGHT * historyAllowed;
 	#endif
+	vec2 currentRenderUv = SrSceneSampleUv(currentRasterUv);
+	vec4 currentSurfaceData = texture2D(colortex2, currentRenderUv);
+	float glassDepth = MaterialIsGlass(currentSurfaceData);
+	float currentDepth = glassDepth > 0.5
+		? texture2D(depthtex0, currentRenderUv).r
+		: texture2D(depthtex1, currentRenderUv).r;
+	float reflectionReactive = NativeTemporalReflectionReactive(
+		currentSurfaceData,
+		currentDepth,
+		reprojection
+	);
+	historyWeight *= 1.0 - reflectionReactive;
 	vec3 resolvedCompressed = mix(
 		currentCompressed,
 		boundedHistory,

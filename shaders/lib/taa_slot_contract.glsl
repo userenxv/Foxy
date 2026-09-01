@@ -174,7 +174,11 @@ TaaSlotReprojection TaaSlotBuildReprojection(const in vec2 centerUv) {
 result.firstPerson = centerSurface.firstPerson;
 	result.water = centerSurface.water;
 
-vec2 previousJitterUv = vec2(0.0);
+	#if FOXY_TEMPORAL_JITTER_ACTIVE == 1
+		vec2 previousJitterUv = previousTemporalJitter * 0.5;
+	#else
+		vec2 previousJitterUv = vec2(0.0);
+	#endif
 	vec4 previousClip;
 
 TaaSlotSurface motionSurface = closestSurface;

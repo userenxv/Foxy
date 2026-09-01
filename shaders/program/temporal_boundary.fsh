@@ -5,6 +5,7 @@ uniform sampler2D colortex0;
 uniform sampler2D colortex3;
 uniform sampler2D colortex14;
 #if FOXY_TAA_ENABLED == 1
+uniform sampler2D colortex2;
 uniform sampler2D colortex12;
 uniform sampler2D depthtex0;
 uniform sampler2D depthtex1;

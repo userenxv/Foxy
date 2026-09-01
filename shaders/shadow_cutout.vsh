@@ -16,6 +16,11 @@ uniform float rainStrength;
 #if FOXY_VOXEL_ACTIVE == 1
 #define FOXY_VOXEL_BUFFER_WRITE
 #include "/lib/voxel/voxel_grid.glsl"
+	#if FOXY_MATERIAL_REFLECTIONS == 1 && FOXY_MATERIAL_REFLECTION_GLOBAL == 1 && FOXY_MATERIAL_REFLECTION_OFFSCREEN == 1
+		#define FOXY_VOXEL_MATERIAL_COLOR_WRITE
+		#include "/lib/voxel/material_color.glsl"
+		#undef FOXY_VOXEL_MATERIAL_COLOR_WRITE
+	#endif
 
 attribute vec4 at_midBlock;
 #endif
@@ -52,6 +57,18 @@ void main() {
 		mat3(shadowModelViewInverse) * gl_NormalMatrix * gl_Normal
 	);
 	uint materialId = uint(max(mc_Entity.x, 0.0) + 0.5);
+	uint storedMaterialId = VoxelMaterialForGeometry(materialId, scenePos, cameraPosition, sceneNormal);
+	#if FOXY_MATERIAL_REFLECTIONS == 1 && FOXY_MATERIAL_REFLECTION_GLOBAL == 1 && FOXY_MATERIAL_REFLECTION_OFFSCREEN == 1
+		if (storedMaterialId >= FOXY_VOXEL_CUSTOM_MATERIAL_BASE) {
+			VoxelMaterialColorStore(
+				ivec3(floor(VoxelGridSceneToGrid(scenePos, cameraPosition))),
+				storedMaterialId,
+				VoxelEncodeAxisNormal(sceneNormal),
+				spriteCenterUv,
+				texcoord
+			);
+		}
+	#endif
 	VoxelGridStoreScene(
 		scenePos,
 		cameraPosition,

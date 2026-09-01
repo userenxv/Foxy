@@ -23,6 +23,9 @@ uniform sampler2D lightmap;
 uniform sampler2D colortex7;
 uniform sampler2D depthtex1;
 uniform sampler2D shadowtex0;
+#if FOXY_PBR_NORMAL_MAPS == 1
+uniform sampler2D normals;
+#endif
 uniform vec3 sunPosition;
 uniform vec3 moonPosition;
 uniform vec3 shadowLightPosition;
@@ -122,6 +125,37 @@ float WaterShadowVisibility(const in float NoL, const in vec3 normalView) {
 	return mix(1.0, mix(floorVisibility, 1.0, visibility), coverageFade);
 }
 
+#if FOXY_PBR_NORMAL_MAPS == 1
+bool WaterDerivativeTangentFrame(
+	const in vec3 normalView,
+	out vec3 tangentView,
+	out vec3 bitangentView
+) {
+	vec2 uvDx = dFdx(texcoord);
+	vec2 uvDy = dFdy(texcoord);
+	float determinant = uvDx.x * uvDy.y - uvDx.y * uvDy.x;
+	if (abs(determinant) <= 1.0e-8) return false;
+
+	vec3 frameNormal = PbrSafeNormal(normalView, vec3(0.0, 0.0, 1.0));
+	vec3 positionDx = dFdx(surfaceViewPosition);
+	vec3 positionDy = dFdy(surfaceViewPosition);
+	vec3 rawTangent = (positionDx * uvDy.y - positionDy * uvDx.y) / determinant;
+	vec3 rawBitangent = (positionDy * uvDx.x - positionDx * uvDy.x) / determinant;
+
+	rawTangent -= frameNormal * dot(rawTangent, frameNormal);
+	float tangentLengthSquared = dot(rawTangent, rawTangent);
+	if (tangentLengthSquared <= 1.0e-10) return false;
+	tangentView = rawTangent * inversesqrt(tangentLengthSquared);
+
+	rawBitangent -= frameNormal * dot(rawBitangent, frameNormal);
+	rawBitangent -= tangentView * dot(rawBitangent, tangentView);
+	float bitangentLengthSquared = dot(rawBitangent, rawBitangent);
+	if (bitangentLengthSquared <= 1.0e-10) return false;
+	bitangentView = rawBitangent * inversesqrt(bitangentLengthSquared);
+	return true;
+}
+#endif
+
 void main() {
 	#ifdef COLORWHEEL
 		vec4 texel = texture2D(gtexture, texcoord);
@@ -150,7 +184,32 @@ void main() {
 	}
 	if (isWater < 0.5) {
 		vec3 baseColor = SrgbToLinear(texel.rgb);
+		float glassTextureCoverage = isGlass
+			? smoothstep(0.25, 0.70, Saturate(texel.a))
+			: 0.0;
 		vec3 normalView = normalize(surfaceNormalView);
+		if (isGlass) {
+			vec3 faceNormal = normalize(cross(
+				dFdx(surfaceViewPosition),
+				dFdy(surfaceViewPosition)
+			));
+			if (dot(faceNormal, normalView) < 0.0) faceNormal = -faceNormal;
+			normalView = faceNormal;
+			#if FOXY_PBR == 1 && FOXY_PBR_NORMAL_MAPS == 1
+				vec3 mappedNormalTangent = PbrDecodeNormalMap(textureLod(normals, texcoord, 0.0).rgb);
+				vec3 tangentView;
+				vec3 bitangentView;
+				if (WaterDerivativeTangentFrame(faceNormal, tangentView, bitangentView)) {
+					normalView = PbrVisibleNormal(
+						tangentView * mappedNormalTangent.x +
+						bitangentView * mappedNormalTangent.y +
+						faceNormal * mappedNormalTangent.z,
+						faceNormal,
+						normalize(-surfaceViewPosition)
+					);
+				}
+			#endif
+		}
 		vec3 upView = normalize(upPosition);
 		vec3 sunView;
 		vec3 moonView;
@@ -189,6 +248,7 @@ void main() {
 		vec3 torchColor = TorchColor(blockLight) * 0.38;
 		float noLightFloor = mix(0.00020, 0.0018, Saturate(blockLight * 1.70 + skyLight * 0.75));
 		vec3 color = baseColor * (lightmapColor * 0.22 + ambientColor + directColor + torchColor + vec3(noLightFloor));
+		if (isGlass) color *= glassTextureCoverage;
 		float fallbackEmissionMask = PbrFallbackEmissionMask(
 			baseColor,
 			vertexMaterialId,
@@ -209,7 +269,10 @@ void main() {
 		float iceAlpha = mix(0.50, 0.70, Saturate(skyLight * 0.65 + blockLight * 0.25));
 		float alpha = mix(texel.a, min(texel.a, iceAlpha), Saturate(isIce));
 
-		gl_FragData[0] = vec4(EncodeSceneColor(max(color, vec3(0.0))), isGlass ? 0.0 : alpha);
+		float glassBaseExposure = isGlass
+			? mix(0.020, 0.26, glassTextureCoverage)
+			: 0.0;
+		gl_FragData[0] = vec4(EncodeSceneColor(max(color, vec3(0.0))), isGlass ? glassBaseExposure : alpha);
 		gl_FragData[1] = isGlass
 			? MaterialGlassPacket(TransmissionColor(vertexMaterialId), normalView)
 			: vec4(0.0);

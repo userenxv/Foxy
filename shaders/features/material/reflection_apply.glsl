@@ -12,6 +12,21 @@ vec3 ApplyMaterialReflection(
 	const in vec4 filteredReflection
 ) {
 	if (max(filteredReflection.r, max(filteredReflection.g, filteredReflection.b)) < 1.0e-7) return sceneColor;
+	float glassSurface = MaterialIsGlass(packedSurface);
+	if (glassSurface > 0.5) {
+		float glassDepth = texture2D(depthtex0, renderUv).r;
+		if (glassDepth >= 0.99999) return sceneColor;
+		vec3 glassViewPos = BackendMainViewPosition(viewUv, glassDepth, gbufferProjectionInverse);
+		vec3 incidentView = normalize(glassViewPos);
+		vec3 glassNormal = MaterialGlassNormal(packedSurface);
+		if (dot(glassNormal, -incidentView) < 0.0) glassNormal = -glassNormal;
+		float NoV = max(dot(glassNormal, -incidentView), 0.0);
+		float fresnel = 0.04 + 0.96 * pow(1.0 - NoV, 5.0);
+		return max(
+			mix(sceneColor, filteredReflection.rgb, Saturate(fresnel * 0.82 * FOXY_MATERIAL_REFLECTION_STRENGTH)),
+			vec3(0.0)
+		);
+	}
 	BackendOpaqueSurface opaqueSurface = BackendResolveOpaqueSurface(
 		viewUv,
 		renderUv,

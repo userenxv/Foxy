@@ -385,7 +385,8 @@ vec3 ApplyLightweightGlass(
 	const in vec2 renderUv,
 	const in vec4 glassPacket,
 	const in float glassDepth,
-	const in Endpoint layerEndpoint
+	const in Endpoint layerEndpoint,
+	const in bool includeReflection
 ) {
 	vec3 glassViewPos = ViewPosFromDepth(viewUv, glassDepth);
 	float glassViewDistance = max(length(glassViewPos), 1.0e-5);
@@ -428,24 +429,30 @@ vec3 ApplyLightweightGlass(
 	float opticalDensity = mix(0.55, 2.20, Saturate(tintSignal * 1.35));
 	vec3 absorption = exp2((transmission - vec3(1.0)) * opticalDensity);
 	vec3 transmittedColor = mix(unrefractedScene, refractedScene, refractionValid) * absorption;
+	transmittedColor *= mix(vec3(1.0), transmission, 0.18);
 
 	vec3 reflectedViewDir = normalize(reflect(incidentView, normalView));
-	vec3 reflectedWorldDir = normalize(mat3(gbufferModelViewInverse) * reflectedViewDir);
-	vec3 skyReflection = DecodeSkyLutColor(
-		texture2D(colortex7, SkyViewLutUv(reflectedWorldDir)).rgb
-	);
-	float skyVisibility = smoothstep(0.04, 0.26, reflectedWorldDir.y);
-	vec3 reflectionColor = mix(unrefractedScene * 0.08 + vertexSkyAmbientColor * 0.12, skyReflection, skyVisibility);
 	float grazing = 1.0 - normalViewDot;
 	float fresnel = 0.04 + 0.96 * grazing * grazing * grazing * grazing * grazing;
-	if (fresnel > 0.065) {
-		vec4 localTrace = TraceGlassReflection(glassViewPos, reflectedViewDir);
-		if (localTrace.w > 0.5) {
-			vec3 localReflection = ReflectionSample(localTrace.xy);
-			reflectionColor = mix(reflectionColor, localReflection, localTrace.z);
+	vec3 reflectionColor = transmittedColor;
+	if (includeReflection) {
+		vec3 reflectedWorldDir = normalize(mat3(gbufferModelViewInverse) * reflectedViewDir);
+		vec3 skyReflection = DecodeSkyLutColor(
+			texture2D(colortex7, SkyViewLutUv(reflectedWorldDir)).rgb
+		);
+		float skyVisibility = smoothstep(-0.28, 0.26, reflectedWorldDir.y);
+		reflectionColor = mix(unrefractedScene * 0.08 + vertexSkyAmbientColor * 0.12, skyReflection, skyVisibility);
+		if (fresnel > 0.065) {
+			vec4 localTrace = TraceGlassReflection(glassViewPos, reflectedViewDir);
+			if (localTrace.w > 0.5) {
+				vec3 localReflection = ReflectionSample(localTrace.xy);
+				reflectionColor = mix(reflectionColor, localReflection, localTrace.z);
+			}
 		}
 	}
-	vec3 glassColor = mix(transmittedColor, reflectionColor, Saturate(fresnel * 0.82));
+	vec3 glassColor = includeReflection
+		? mix(transmittedColor, reflectionColor, Saturate(fresnel * 0.82))
+		: transmittedColor;
 
 	float sunLobe = pow(max(dot(reflectedViewDir, vertexSunView), 0.0), 512.0);
 	float moonLobe = pow(max(dot(reflectedViewDir, vertexMoonView), 0.0), 384.0);
@@ -855,19 +862,28 @@ void main() {
 				renderTexcoord,
 				waterMaterialPacket,
 				glassDepth,
-				layerEndpoint
+				layerEndpoint,
+				FOXY_MATERIAL_REFLECTIONS == 0
 			);
 			scene.rgb = EncodeSceneColor(glassScene);
 		} else {
 			StoreWaterSegment(renderTexcoord, WaterSegmentPack(WaterSegmentInvalid()));
 		}
 		#if FOXY_MATERIAL_REFLECTIONS == 1
-			materialReflectionSignal = TraceMaterialReflectionSignal(
-				max(DecodeSceneColor(scene.rgb), vec3(0.0)),
-				viewTexcoord,
-				renderTexcoord,
-				waterMaterialPacket
-			);
+			materialReflectionSignal = glassPresent > 0.5
+				? TraceGlassMaterialReflectionSignal(
+					max(DecodeSceneColor(scene.rgb), vec3(0.0)),
+					viewTexcoord,
+					renderTexcoord,
+					waterMaterialPacket,
+					glassDepth
+				)
+				: TraceMaterialReflectionSignal(
+					max(DecodeSceneColor(scene.rgb), vec3(0.0)),
+					viewTexcoord,
+					renderTexcoord,
+					waterMaterialPacket
+				);
 		#endif
 		#if FOXY_VOLUMETRIC_LIGHT == 0
 

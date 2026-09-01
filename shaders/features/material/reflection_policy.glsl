@@ -3,11 +3,24 @@
 
 #include "/lib/surface_pbr.glsl"
 
+#define FOXY_REFLECTION_TYPE_SMOOTH 1.0
+#define FOXY_REFLECTION_TYPE_ROUGH 2.0
+
 float MaterialReflectionSmoothness(const in float perceptualRoughness) {
 	return 1.0 - smoothstep(
 		FOXY_MATERIAL_REFLECTION_ROUGHNESS_CUTOFF * 0.72,
 		FOXY_MATERIAL_REFLECTION_ROUGHNESS_CUTOFF,
 		perceptualRoughness
+	);
+}
+
+float MaterialReflectionType(
+	const in float perceptualRoughness
+) {
+	return mix(
+		FOXY_REFLECTION_TYPE_SMOOTH,
+		FOXY_REFLECTION_TYPE_ROUGH,
+		step(FOXY_MATERIAL_REFLECTION_SMOOTH_ROUGHNESS, perceptualRoughness)
 	);
 }
 

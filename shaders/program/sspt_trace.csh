@@ -93,6 +93,7 @@ uniform int frameCounter;
 #endif
 #if FOXY_VOXEL_GI_ACTIVE == 1
 	#include "/lib/voxel/voxel_grid.glsl"
+	#include "/lib/voxel/material_color.glsl"
 	#include "/lib/voxel/voxel_shape.glsl"
 	#if defined(FOXY_SSPT_TRACE_LIBRARY_ONLY) || FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
 		#include "/lib/voxel/irradiance_cache.glsl"
@@ -383,7 +384,7 @@ vec3 VoxelGiEmission(const in uint payload) {
 }
 
 #if !defined(FOXY_SSPT_TRACE_LIBRARY_ONLY) || defined(FOXY_MATERIAL_REFLECTION_GLOBAL_DIRECT_LIGHT)
-float VoxelGiDirectVisibility(
+float VoxelGiShadowMapDetail(
 	const in vec3 gridPosition,
 	const in vec3 hitNormal,
 	const in float lightNoL
@@ -397,32 +398,72 @@ float VoxelGiDirectVisibility(
 		0.018,
 		0.180
 	);
-
-	vec3 faceCenter = floor(gridPosition - hitNormal * 1.0e-4) +
-		vec3(0.5) + hitNormal * 0.5;
-	vec3 scenePosition = faceCenter - fract(cameraPosition) -
+	vec3 scenePosition = gridPosition - fract(cameraPosition) -
 		vec3(FOXY_VOXEL_GRID_HALF_SIZE);
 	vec4 shadowClip = shadowProjection * shadowModelView *
 		vec4(scenePosition + hitNormal * normalOffset, 1.0);
-	if (abs(shadowClip.w) < 1.0e-7) return 0.0;
+	if (abs(shadowClip.w) < 1.0e-7) return 1.0;
 	vec3 shadowNdc = shadowClip.xyz / shadowClip.w;
-	vec3 shadowCoord = vec3(ShadowWarp(shadowNdc.xy), shadowNdc.z) *
+	vec2 clipXY = shadowNdc.xy;
+	vec3 centerCoord = vec3(ShadowWarp(clipXY), shadowNdc.z) *
 		0.5 + vec3(0.5);
 	if (
-		any(lessThanEqual(shadowCoord, vec3(0.0))) ||
-		any(greaterThanEqual(shadowCoord, vec3(1.0)))
-	) {
-		return 0.0;
-	}
+		any(lessThanEqual(centerCoord, vec3(0.0))) ||
+		any(greaterThanEqual(centerCoord, vec3(1.0)))
+	) return 1.0;
 
-	float receiverBias = mix(0.00034, 0.000055, Saturate(lightNoL));
-
-	float shadowVisibility = textureLod(
-		shadowtex1,
-		vec3(shadowCoord.xy, shadowCoord.z - receiverBias),
-		0.0
+	vec3 normalWorld = normalize(hitNormal);
+	vec3 normalShadow = normalize(mat3(shadowModelView) * normalWorld);
+	float normalShadowZ = abs(normalShadow.z) < 0.08
+		? (normalShadow.z < 0.0 ? -0.08 : 0.08)
+		: normalShadow.z;
+	float projectionX = abs(shadowProjection[0][0]) < 1.0e-6
+		? 1.0e-6 : shadowProjection[0][0];
+	float projectionY = abs(shadowProjection[1][1]) < 1.0e-6
+		? 1.0e-6 : shadowProjection[1][1];
+	vec2 depthSlope = -0.5 * shadowProjection[2][2] * vec2(
+		normalShadow.x / projectionX,
+		normalShadow.y / projectionY
+	) / normalShadowZ;
+	depthSlope = clamp(depthSlope, vec2(-8.0), vec2(8.0));
+	float receiverBias = mix(0.00034, 0.000055, Saturate(lightNoL)) +
+		min(
+			ShadowReceiverPlaneBias(clipXY, depthSlope) *
+				SHADOW_RECEIVER_PLANE_BIAS_SCALE,
+			SHADOW_RECEIVER_PLANE_BIAS_MAX
+		);
+	ShadowFilterWarp filterWarp = ShadowBuildFilterWarp(clipXY);
+	const vec2 taps[5] = vec2[5](
+		vec2(0.0), vec2(0.80, 0.0), vec2(-0.80, 0.0),
+		vec2(0.0, 0.80), vec2(0.0, -0.80)
 	);
-	return Saturate(shadowVisibility);
+	float visibility = 0.0;
+	for (int i = 0; i < 5; ++i) {
+		vec2 offsetTexels = taps[i];
+		vec2 uv = ShadowFilterSampleUv(
+			clipXY,
+			centerCoord.xy,
+			filterWarp,
+			offsetTexels
+		);
+		vec2 clipOffset = ShadowTexelOffsetToClip(offsetTexels);
+		float receiverDepth = centerCoord.z + dot(depthSlope, clipOffset) -
+			receiverBias;
+		visibility += textureLod(
+			shadowtex1,
+			vec3(uv, receiverDepth),
+			0.0
+		);
+	}
+	return Saturate(visibility * 0.2);
+}
+
+float VoxelGiDirectVisibility(
+	const in vec3 gridPosition,
+	const in vec3 hitNormal,
+	const in float lightNoL
+) {
+	return VoxelGiShadowMapDetail(gridPosition, hitNormal, lightNoL);
 }
 #endif
 
@@ -450,6 +491,37 @@ vec3 VoxelGiSkyIncomingRadiance(
 		FOXY_VOXEL_GI_SKY_BRIGHTNESS;
 }
 
+vec3 VoxelGiNeutralSkyMeanRadiance() {
+	vec3 skyUpperHemisphereFluence = DecodeBufferColor(texelFetch(
+		colortex7,
+		SkyUpperHemisphereFluenceTexel(),
+		0
+	).rgb);
+	vec3 skyMeanRadiance = max(skyUpperHemisphereFluence, vec3(0.0)) /
+		(2.0 * PI);
+	float skyMeanLuma = dot(
+		max(skyMeanRadiance, vec3(0.0)),
+		vec3(0.2126, 0.7152, 0.0722)
+	);
+	vec3 neutralSkyMeanRadiance = mix(
+		skyMeanRadiance,
+		vec3(skyMeanLuma),
+		Saturate(FOXY_SKY_AMBIENT_NEUTRALITY)
+	) * FOXY_SKY_AMBIENT_LIFT;
+	#if defined(FOXY_DIM_NETHER)
+		neutralSkyMeanRadiance = max(
+			neutralSkyMeanRadiance,
+			NetherEnvironmentFluence() * 4.0
+		);
+	#elif defined(FOXY_DIM_END)
+		neutralSkyMeanRadiance = max(
+			neutralSkyMeanRadiance,
+			EndEnvironmentFluence() * 0.75
+		);
+	#endif
+	return neutralSkyMeanRadiance;
+}
+
 vec3 VoxelGiBlockLightRadiance(
 	const in uint payload,
 	const in vec3 albedo,
@@ -466,6 +538,113 @@ vec3 VoxelGiBlockLightRadiance(
 	return albedo * blockIrradiance * (faceCosine / PI);
 }
 
+vec3 VoxelGiDirectHitRadiance(
+	const in uint payload,
+	const in vec3 albedo,
+	const in vec3 hitNormal,
+	const in float skyLight,
+	const in vec3 sunRadiance,
+	const in float sunCosine,
+	const in float sunVisibility,
+	const in float localLightScale
+) {
+	vec3 radiance = VoxelGiBlockLightRadiance(
+		payload,
+		albedo,
+		hitNormal
+	) * localLightScale;
+	if (sunVisibility > 0.0) {
+		float sunDomainGate = step(0.5 / 15.0, skyLight);
+		#if defined(FOXY_DIM_END)
+			sunDomainGate = 1.0;
+		#endif
+		radiance += albedo * sunRadiance *
+			(sunCosine * sunVisibility * sunDomainGate / PI) *
+			FOXY_VOXEL_GI_SUN_DIFFUSE_BRIGHTNESS *
+			FOXY_VXGI_SUN_CALIBRATION;
+	}
+	return max(radiance, vec3(0.0));
+}
+
+vec3 VoxelGiReflectionRadiance(
+	const in uint payload,
+	const in vec3 albedo,
+	const in vec3 hitNormal,
+	const in float skyLight,
+	const in vec3 neutralSkyMeanRadiance,
+	const in vec3 sunRadiance,
+	const in float sunCosine,
+	const in float sunVisibility,
+	const in float localLightScale,
+	const in float skyLightScale
+) {
+	vec3 radiance = VoxelGiDirectHitRadiance(
+		payload,
+		albedo,
+		hitNormal,
+		skyLight,
+		sunRadiance,
+		sunCosine,
+		sunVisibility,
+		localLightScale
+	);
+	vec3 emission = VoxelGiEmission(payload);
+	if (Luma(emission) > 0.0) {
+		emission *= mix(vec3(1.0), clamp(albedo * 1.6, vec3(0.0), vec3(1.0)), 0.62);
+		radiance += emission * localLightScale;
+	}
+	float skyVisibility = VoxelGiSkyVisibility(skyLight);
+	float skyFacing = 0.5 + 0.5 * clamp(hitNormal.y, -1.0, 1.0);
+	vec3 baseSky = neutralSkyMeanRadiance *
+		max(skyVisibility, 0.12) *
+		mix(0.45, 1.0, skyFacing) *
+		FOXY_VOXEL_GI_SKY_BRIGHTNESS * skyLightScale;
+	return max(radiance + albedo * baseSky / PI, vec3(0.0));
+}
+
+vec3 VoxelGiHitRadianceMode(
+	const in uint payload,
+	const in vec3 albedo,
+	const in vec3 hitNormal,
+	const in float skyLight,
+	const in vec3 neutralSkyMeanRadiance,
+	const in vec3 sunRadiance,
+	const in float sunCosine,
+	const in float sunVisibility,
+	const in bool useTerminalSkyFallback,
+	const in float localLightScale,
+	const in float skyLightScale,
+	const in bool tintEmissionWithAlbedo
+) {
+	vec3 radiance = vec3(0.0);
+	radiance += VoxelGiBlockLightRadiance(
+		payload,
+		albedo,
+		hitNormal
+	) * localLightScale;
+	if (sunVisibility > 0.0) {
+		float sunDomainGate = step(0.5 / 15.0, skyLight);
+		#if defined(FOXY_DIM_END)
+			sunDomainGate = 1.0;
+		#endif
+		radiance += albedo * sunRadiance *
+			(sunCosine * sunVisibility * sunDomainGate / PI) *
+			FOXY_VOXEL_GI_SUN_DIFFUSE_BRIGHTNESS *
+			FOXY_VXGI_SUN_CALIBRATION;
+	}
+	vec3 emission = VoxelGiEmission(payload);
+	if (tintEmissionWithAlbedo && Luma(emission) > 0.0) {
+		emission = mix(emission, max(albedo, vec3(0.0)), 0.65);
+	}
+	radiance += emission * localLightScale;
+	radiance += albedo * VoxelGiSkyIncomingRadiance(
+		skyLight,
+		hitNormal,
+		neutralSkyMeanRadiance
+	) * (skyLightScale / PI);
+	return max(radiance, vec3(0.0));
+}
+
 vec3 VoxelGiHitRadiance(
 	const in uint payload,
 	const in vec3 albedo,
@@ -479,26 +658,20 @@ vec3 VoxelGiHitRadiance(
 	const in float localLightScale,
 	const in float skyLightScale
 ) {
-	vec3 radiance = vec3(0.0);
-	radiance += VoxelGiBlockLightRadiance(
+	return VoxelGiHitRadianceMode(
 		payload,
 		albedo,
-		hitNormal
-	) * localLightScale;
-
-if (sunVisibility > 0.0) {
-		float sunDomainGate = step(0.5 / 15.0, skyLight);
-		#if defined(FOXY_DIM_END)
-			sunDomainGate = 1.0;
-		#endif
-		radiance += albedo * sunRadiance *
-			(sunCosine * sunVisibility * sunDomainGate / PI) *
-			FOXY_VOXEL_GI_SUN_DIFFUSE_BRIGHTNESS *
-			FOXY_VXGI_SUN_CALIBRATION;
-	}
-
-radiance += VoxelGiEmission(payload) * localLightScale;
-	return max(radiance, vec3(0.0));
+		hitNormal,
+		skyLight,
+		neutralSkyMeanRadiance,
+		sunRadiance,
+		sunCosine,
+		sunVisibility,
+		useTerminalSkyFallback,
+		localLightScale,
+		skyLightScale,
+		false
+	);
 }
 
 #include "/lib/voxel/vrtgi_trace.glsl"

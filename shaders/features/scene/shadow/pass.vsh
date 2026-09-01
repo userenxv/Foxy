@@ -7,6 +7,11 @@
 #if FOXY_VOXEL_ACTIVE == 1
 	#define FOXY_VOXEL_BUFFER_WRITE
 	#include "/lib/voxel/voxel_grid.glsl"
+	#if FOXY_MATERIAL_REFLECTIONS == 1 && FOXY_MATERIAL_REFLECTION_GLOBAL == 1 && FOXY_MATERIAL_REFLECTION_OFFSCREEN == 1
+		#define FOXY_VOXEL_MATERIAL_COLOR_WRITE
+		#include "/lib/voxel/material_color.glsl"
+		#undef FOXY_VOXEL_MATERIAL_COLOR_WRITE
+	#endif
 	attribute vec4 at_midBlock;
 	#ifdef COLORWHEEL
 		#define VOXEL_GEOMETRY_ELIGIBLE(materialId) false
@@ -58,13 +63,18 @@ void main() {
 	surfaceWorldPosition = playerPos + cameraPosition;
 
 	#if FOXY_VOXEL_ACTIVE == 1
-
-if (VOXEL_GEOMETRY_ELIGIBLE(entityId)) {
+		if (VOXEL_GEOMETRY_ELIGIBLE(entityId)) {
 			vec3 modelPos = gl_Vertex.xyz + at_midBlock.xyz / 64.0;
 			vec3 centeredShadowView = (gl_ModelViewMatrix * vec4(modelPos, 1.0)).xyz;
 			vec3 centeredScenePos = (shadowModelViewInverse * vec4(centeredShadowView, 1.0)).xyz;
 			vec3 sceneNormal = normalize(
 				mat3(shadowModelViewInverse) * gl_NormalMatrix * gl_Normal
+			);
+			uint storedMaterialId = VoxelMaterialForGeometry(
+				uint(max(entityId, 0.0) + 0.5),
+				centeredScenePos,
+				cameraPosition,
+				sceneNormal
 			);
 			VoxelGridStoreScene(
 				centeredScenePos,
@@ -74,6 +84,15 @@ if (VOXEL_GEOMETRY_ELIGIBLE(entityId)) {
 				at_midBlock.w,
 				lightmapUv
 			);
+			#if FOXY_MATERIAL_REFLECTIONS == 1 && FOXY_MATERIAL_REFLECTION_GLOBAL == 1 && FOXY_MATERIAL_REFLECTION_OFFSCREEN == 1 && !defined(COLORWHEEL)
+				VoxelMaterialColorStore(
+					ivec3(floor(VoxelGridSceneToGrid(centeredScenePos, cameraPosition))),
+					storedMaterialId,
+					VoxelEncodeAxisNormal(sceneNormal),
+					spriteCenterUv,
+					texcoord
+				);
+			#endif
 		}
 	#endif
 }
