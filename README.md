@@ -13,7 +13,12 @@ default.
 ## License
 
 Foxy's original code, configuration, documentation, and assets are released
-under All Rights Reserved. See [LICENSE-ARR.txt](LICENSE-ARR.txt).
+under All Rights Reserved. See [LICENSE.txt](LICENSE.txt).
 
 Third-party components retain their original licenses. See
 [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
+
+## Downloads
+
+Official builds are published only through this repository's releases:
+https://github.com/userenxv/Foxy/releases
