@@ -1,3 +1,3 @@
 #version 120
 #define WEATHER
-#include "/entry/gbuffers/textured.vsh"
+#include "/program/gbuffer_weather.vsh"

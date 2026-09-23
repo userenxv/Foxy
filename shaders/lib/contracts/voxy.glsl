@@ -5,6 +5,7 @@
 #include "/lib/contracts/backend.glsl"
 #include "/lib/lighting.glsl"
 #include "/lib/sky.glsl"
+#include "/lib/dimension_sky.glsl"
 
 vec2 VoxyViewUv(
 	const in vec2 fragCoord,
@@ -79,13 +80,23 @@ void VoxyLighting(
 	float moonAltitude = moonWorld.y;
 
 #if defined(FOXY_DIM_NETHER)
-	ambient = vec3(0.070, 0.018, 0.010) * (0.32 + 0.68 * skyLight);
+	#if FOXY_RAY_ACTIVE == 1
+		ambient = vec3(0.070, 0.018, 0.010) * (0.32 + 0.68 * skyLight);
+	#else
+		ambient = NetherAmbientColor();
+	#endif
 	directSun = vec3(0.0);
 	directMoon = vec3(0.0);
 	fogColor = vec3(0.115, 0.030, 0.018);
 #elif defined(FOXY_DIM_END)
-	ambient = vec3(0.026, 0.022, 0.050) * (0.42 + 0.58 * skyLight);
-	directSun = vec3(0.0);
+	#if FOXY_RAY_ACTIVE == 1
+		ambient = vec3(0.026, 0.022, 0.050) * (0.42 + 0.58 * skyLight);
+	#else
+		ambient = EndAmbientColor();
+	#endif
+	float endSunNoL = max(dot(normalWorld, sunWorld), 0.0);
+	directSun = ColorTemperatureTint(EndKeyLightTemperature(frameTimeCounter)) * 2.10 *
+		endSunNoL * mix(0.35, 1.0, skyLight) * EndKeyLightFlux(frameTimeCounter);
 	directMoon = vec3(0.0);
 	fogColor = vec3(0.050, 0.040, 0.090);
 #else

@@ -3,6 +3,7 @@
 
 #if FOXY_MATERIAL_REFLECTIONS == 1
 #include "/features/material/reflection_policy.glsl"
+#include "/lib/blackhole_sky.glsl"
 
 vec3 ApplyMaterialReflection(
 	const in vec3 sceneColor,
@@ -22,8 +23,13 @@ vec3 ApplyMaterialReflection(
 		if (dot(glassNormal, -incidentView) < 0.0) glassNormal = -glassNormal;
 		float NoV = max(dot(glassNormal, -incidentView), 0.0);
 		float fresnel = 0.04 + 0.96 * pow(1.0 - NoV, 5.0);
+		vec3 reflectedWorldDir = normalize(
+			mat3(gbufferModelViewInverse) * normalize(reflect(incidentView, glassNormal))
+		);
+		vec3 reflectionColor = filteredReflection.rgb
+			+ BlackHoleReflectionRadiance(reflectedWorldDir);
 		return max(
-			mix(sceneColor, filteredReflection.rgb, Saturate(fresnel * 0.82 * FOXY_MATERIAL_REFLECTION_STRENGTH)),
+			mix(sceneColor, reflectionColor, Saturate(fresnel * 0.82 * FOXY_MATERIAL_REFLECTION_STRENGTH)),
 			vec3(0.0)
 		);
 	}
@@ -73,7 +79,12 @@ vec3 ApplyMaterialReflection(
 	vec3 f0 = mix(dielectricF0, clamp(material.albedo * 1.12 + vec3(0.06), vec3(0.12), vec3(0.96)), material.metalness);
 	vec3 fresnel = f0 + (vec3(1.0) - f0) * pow(1.0 - NoV, 5.0);
 	vec3 amount = fresnel * FOXY_MATERIAL_REFLECTION_STRENGTH;
-	return max(sceneColor + filteredReflection.rgb * amount, vec3(0.0));
+	vec3 reflectedWorldDir = normalize(
+		mat3(gbufferModelViewInverse) * normalize(reflect(incidentView, normalView))
+	);
+	vec3 reflectionColor = filteredReflection.rgb
+		+ BlackHoleReflectionRadiance(reflectedWorldDir);
+	return max(sceneColor + reflectionColor * amount, vec3(0.0));
 }
 #else
 vec3 ApplyMaterialReflection(

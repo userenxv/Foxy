@@ -5,6 +5,7 @@
 #include "/lib/math.glsl"
 #include "/lib/lighting.glsl"
 #include "/lib/cloud_coverage.glsl"
+#include "/lib/weather.glsl"
 
 #if FOXY_CLOUD_QUALITY == 0
 	#define FOXY_CLOUD_VOLUME_LOOP_STEPS 96
@@ -72,6 +73,22 @@ vec3 CloudUniformSkyAmbientColor(const in float sunAltitude, const in float rain
 	return SkyAmbientColor(sunAltitude, rainStrength);
 }
 #endif
+
+
+const float CLOUD_SKY_FLUENCE_NOON_REFERENCE = 2.90;
+const float CLOUD_SKY_RESPONSE_FLOOR = 0.20;
+const float CLOUD_SKY_DEEP_FLOOR = 0.03;
+const float CLOUD_SKY_RESPONSE_CURVE = 0.65;
+
+vec3 CloudSkyFluenceRatio(sampler2D skyLut, const in float sunAltitude) {
+	vec3 fluence = SkyCachedUpperHemisphereFluence(skyLut);
+	float ratio = Saturate(Luma(fluence) / CLOUD_SKY_FLUENCE_NOON_REFERENCE);
+	ratio = pow(ratio, CLOUD_SKY_RESPONSE_CURVE);
+	float daylightFloorBlend = smoothstep(-0.259, -0.122, sunAltitude); // sin(-15 deg) .. sin(-7 deg)
+	float floorLevel = mix(CLOUD_SKY_DEEP_FLOOR, CLOUD_SKY_RESPONSE_FLOOR, daylightFloorBlend);
+	float scaled = floorLevel + (1.0 - floorLevel) * ratio;
+	return mix(vec3(1.0), fluence / max(Luma(fluence), 1.0e-4), 0.35) * scaled;
+}
 
 #define CLOUD_UNDERSIDE_HEIGHT_TOGGLE 1.0
 
@@ -342,9 +359,12 @@ CloudShapeWeather CloudShapeWeatherAt(
 		state.broadCoverage = Saturate(texture2D(cloudWeatherMap, CloudCoverageBroadUv(worldPos.xz, time)).r);
 	#endif
 
-	float coverageControl = Saturate(FOXY_CLOUD_COVERAGE + rainStrength * 0.20 + FOXY_CLOUD_HORIZONTAL_COVERAGE_BIAS);
+	float coverageControl = Saturate(WeatherCloudCoverage(rainStrength) + FOXY_CLOUD_HORIZONTAL_COVERAGE_BIAS);
 	float coverageLift = coverageControl - 0.50 + max(FOXY_CLOUD_HORIZONTAL_COVERAGE_BIAS, 0.0) * 1.80;
-	state.coverage = CloudShapeMacroCoverage(Saturate(weatherSample.r), state.broadCoverage, coverageLift);
+	state.coverage = Saturate(
+		CloudShapeMacroCoverage(Saturate(weatherSample.r), state.broadCoverage, coverageLift)
+		* WeatherCloudCoverageGain(rainStrength)
+	);
 	state.convective = smoothstep(0.58, 0.92, state.broadCoverage) * smoothstep(0.38, 0.82, state.coverage);
 	float derivedType = smoothstep(0.28, 0.88, state.coverage);
 	state.cloudType = Saturate(mix(mix(max(derivedType, state.convective), weatherSample.b, 0.35), 1.0, FOXY_CLOUD_CUMULUS_BIAS));
@@ -377,7 +397,7 @@ CloudShapeProfile CloudShapeProfileAt(
 	float towerTop = mix(0.56, 1.0, weather.convective);
 	profile.towerHeight = Saturate(profile.normalizedHeight / max(towerTop, 0.05));
 
-	float verticalCoverage = Saturate(FOXY_CLOUD_COVERAGE + rainStrength * 0.20 + FOXY_CLOUD_VERTICAL_COVERAGE_BIAS);
+	float verticalCoverage = Saturate(WeatherCloudCoverage(rainStrength) + FOXY_CLOUD_VERTICAL_COVERAGE_BIAS);
 	profile.rawCoverage = Saturate(verticalCoverage * weather.coverage);
 	float baseCoverage = Saturate(profile.rawCoverage + (1.0 - profile.towerHeight) * mix(0.0, 0.14, weather.convective));
 	float topCoverage = Saturate(profile.rawCoverage - smoothstep(mix(0.34, 0.62, weather.convective), 1.0, profile.towerHeight) * mix(0.30, 0.10, weather.convective));
@@ -493,8 +513,20 @@ float CloudShapeDensityWithCore(
 
 	vec3 baseUv = shapeNoisePos * max(FOXY_CLOUD_SHAPE_BASE_SCALE, 1.0e-6);
 	baseUv.xz += windDir.xz * time * FOXY_CLOUD_SPEED * 0.003;
-	vec4 baseNoise = texture3D(cloudBase3D, fract(baseUv));
-	profile.vertical = CloudShapeUndersideProfile(baseUv, profile.height, weather.broadCoverage, profile.vertical);
+	#if FOXY_CLOUD_DENSITY_BOUND == 1
+		// AuthoredBody is saturated to [0, 1]. Evaluate the same monotone
+		// coverage map at its upper bound before fetching the body texture.
+		// Keep underside evaluation: dimensionalProfile is an observable output.
+		profile.vertical = CloudShapeUndersideProfile(baseUv, profile.height, weather.broadCoverage, profile.vertical);
+		if (CloudShapeCoveredDensity(1.0, profile) <= 0.0001) {
+			dimensionalProfile = profile.vertical * profile.coverage;
+			return 0.0;
+		}
+		vec4 baseNoise = texture3D(cloudBase3D, fract(baseUv));
+	#else
+		vec4 baseNoise = texture3D(cloudBase3D, fract(baseUv));
+		profile.vertical = CloudShapeUndersideProfile(baseUv, profile.height, weather.broadCoverage, profile.vertical);
+	#endif
 	float authoredBody = CloudShapeAuthoredBody(baseNoise, profile);
 	float macroDensity = CloudShapeCoveredDensity(authoredBody, profile);
 	dimensionalProfile = profile.vertical * profile.coverage;
@@ -580,7 +612,7 @@ float CloudBlockDensityWithCore(
 		vec2(0.0)
 	);
 	float roundedShape = 1.0 - smoothstep(0.325, 0.375, length(roundingDeficit));
-	float coverage = Saturate(FOXY_CLOUD_COVERAGE + FOXY_CLOUD_VERTICAL_COVERAGE_BIAS + rainStrength * 0.20);
+	float coverage = Saturate(WeatherCloudCoverage(rainStrength) * WeatherCloudCoverageGain(rainStrength) + FOXY_CLOUD_VERTICAL_COVERAGE_BIAS);
 	dimensionalProfile = horizontalShape * roundedShape * coverage;
 	float densityPower = max(FOXY_CLOUD_BOTTOM_DENSITY_POWER, 0.08);
 	float density = CloudCoreDensityRemap(pow(Saturate(dimensionalProfile), densityPower)) * FOXY_CLOUD_DENSITY * CloudDensityScale();
@@ -635,12 +667,46 @@ float CloudLowDensityCoarse(
 	return CloudLowDensityCoreWithCore(worldPos, shellOrigin, time, rainStrength, 0.0, h, dimensionalProfile, coreDensity);
 }
 
+// Indirect-light shadow integration.  A handful of geometrically grown segments
+// (6 by default, dropping to 2 with distance) has to span the whole cloud slab,
+// so the largest segment ends up an order of magnitude wider than the cloud's
+// own detail features.  Reading each segment at its exact midpoint therefore
+// leaves a coherent staircase in the optical depth, and since the lighting uses
+// exp(-opticalDepth * 0.0070) that staircase is what reads as a lighting band.
+//
+// Dithering the sample offsets turns that staircase into zero-mean noise, but
+// only if the dither differs between neighbouring pixels AND between frames;
+// the caller passes a phase that already has both properties.  The depth of the
+// dither is the FOXY_CLOUD_LIGHT_DITHER user option, because deeper dithering
+// removes more banding and adds more per-pixel noise -- which of the two is
+// more objectionable depends on the scene.
+float CloudLightSampleOffset(const in float phase, const in int segmentIndex) {
+	// FOXY_CLOUD_LIGHT_DITHER is the displacement as a fraction of one segment,
+	// 0 gives the original deterministic midpoint.  Capped at 0.5 so a sample
+	// can never reach a segment boundary: crossing it would shift weight onto
+	// the neighbouring (geometrically larger) segment and bias the integral
+	// one-sidedly instead of merely dithering it.
+	float dither = 0.0;
+	#if FOXY_CLOUD_LIGHT_DITHER_ENABLED == 1
+		dither = min(max(FOXY_CLOUD_LIGHT_DITHER, 0.0), 1.0) * 0.5;
+	#endif
+	if (dither <= 0.0) {
+		return 0.5;
+	}
+	// 0.2140411405 == 1/4.672, so consecutive segments land ~1/4.672 apart in
+	// the unit interval: even 2 or 3 segments still spread across the slab
+	// instead of clustering on one side of it.
+	float segmentPhase = fract(phase * 4.672 + float(segmentIndex) * 0.2140411405);
+	return 0.5 + (segmentPhase - 0.5) * dither;
+}
+
 float CloudLightOpticalDepth(
 	const in vec3 worldPos,
 	const in vec3 shellOrigin,
 	const in vec3 lightDir,
 	const in float time,
-	const in float rainStrength
+	const in float rainStrength,
+	const in float phase
 ) {
 	float bottom;
 	float top;
@@ -674,7 +740,8 @@ float CloudLightOpticalDepth(
 		if (i >= lightSteps) {
 			break;
 		}
-		vec3 p = worldPos + lightDir * (segmentStart + segmentLength * 0.5);
+		float sampleOffset = CloudLightSampleOffset(phase, i);
+		vec3 p = worldPos + lightDir * (segmentStart + segmentLength * sampleOffset);
 		opticalDepth += CloudLowDensityCoarse(p, shellOrigin, time, rainStrength) * segmentLength;
 		segmentStart += segmentLength;
 		segmentLength *= stepGrowth;
@@ -760,13 +827,44 @@ float CloudIsotropicMultipleScattering(
 }
 #endif
 
+// Ray-frequency lighting state. Density, optical depth and height remain per sample.
+struct CloudLightingContext {
+	vec3 lightDir;
+	vec3 lightColor;
+	vec3 skyIrradiance;
+	float solarDiscVisibility;
+	float phasePeak;
+	float sunsetBand;
+	float sunFacingBase;
+};
+
+CloudLightingContext MakeCloudLightingContext(
+	const in vec3 viewDir, const in vec3 sunDir, const in vec3 moonDir,
+	const in vec3 skyColor, const in float rainStrength, const in vec3 skyFluenceRatio
+) {
+	CloudLightingContext context;
+	float sunAltitude = sunDir.y;
+	float moonAltitude = moonDir.y;
+	context.solarDiscVisibility = SolarDiscVisibility(sunAltitude);
+	float useSunDirection = step(0.01, context.solarDiscVisibility);
+	context.lightDir = normalize(mix(moonDir, sunDir, useSunDirection));
+	context.lightColor = CloudUniformSunColor(sunAltitude, rainStrength) * context.solarDiscVisibility;
+	context.lightColor += CloudUniformMoonColor(moonAltitude, rainStrength) * (1.0 - context.solarDiscVisibility) * 1.18;
+	float mu = dot(viewDir, context.lightDir);
+	float rawPhase = CloudPhase(mu) * 5.6;
+	context.phasePeak = rawPhase / (1.0 + max(rawPhase - 0.55, 0.0) * 0.70);
+	context.sunsetBand = smoothstep(-0.12, 0.015, sunAltitude)
+		* (1.0 - smoothstep(0.08, 0.42, sunAltitude));
+	context.sunFacingBase = Saturate(mu * 0.5 + 0.5);
+	vec3 skyAmbient = CloudUniformSkyAmbientColor(sunAltitude, rainStrength) * skyFluenceRatio;
+	context.skyIrradiance = mix(skyAmbient, skyColor, 0.18);
+	return context;
+}
+
 vec3 CloudSampleLighting(
 	const in vec3 worldPos,
 	const in vec3 shellOrigin,
-	const in vec3 viewDir,
-	const in vec3 sunDir,
-	const in vec3 moonDir,
-	const in vec3 skyColor,
+	const in CloudLightingContext context,
 	const in float density,
 	const in float sampleHeightFraction,
 	const in float sampleDimensionalProfile,
@@ -775,15 +873,12 @@ vec3 CloudSampleLighting(
 	const in float rainStrength,
 	const in float cachedOpticalDepthSun,
 	const in float reuseOpticalDepthSun,
+	const in float lightPhase,
 	out float resolvedOpticalDepthSun
 ) {
-	float sunAltitude = sunDir.y;
-	float moonAltitude = moonDir.y;
-	float solarDiscVisibility = SolarDiscVisibility(sunAltitude);
-	float useSunDirection = step(0.01, solarDiscVisibility);
-	vec3 lightDir = normalize(mix(moonDir, sunDir, useSunDirection));
-	vec3 lightColor = CloudUniformSunColor(sunAltitude, rainStrength) * solarDiscVisibility;
-	lightColor += CloudUniformMoonColor(moonAltitude, rainStrength) * (1.0 - solarDiscVisibility) * 1.18;
+	vec3 lightDir = context.lightDir;
+	vec3 lightColor = context.lightColor;
+	float solarDiscVisibility = context.solarDiscVisibility;
 
 	float h = sampleHeightFraction;
 	float dimensionalProfile = sampleDimensionalProfile;
@@ -793,17 +888,15 @@ vec3 CloudSampleLighting(
 	if (reuseOpticalDepthSun > 0.5) {
 		opticalDepthSun = max(cachedOpticalDepthSun, 0.0);
 	} else {
-		opticalDepthSun = CloudLightOpticalDepth(worldPos, shellOrigin, lightDir, time, rainStrength);
+		opticalDepthSun = CloudLightOpticalDepth(worldPos, shellOrigin, lightDir, time, rainStrength, lightPhase);
 	}
 	resolvedOpticalDepthSun = opticalDepthSun;
 
-	float mu = dot(viewDir, lightDir);
 	float coreOcclusion = smoothstep(0.22, 0.78, dimensionalProfile) * smoothstep(0.030, 0.22, localDensity);
 	float sunOptical = (opticalDepthSun * 0.0070 + density * 0.54 + dimensionalProfile * 0.36 + coreOcclusion * 0.18) * mix(0.96, 1.22, rainStrength);
 	float primaryTransmission = exp(-sunOptical);
 	float softTransmission = exp(-sunOptical * 0.28);
-	float rawPhase = CloudPhase(mu) * 5.6;
-	float phasePeak = rawPhase / (1.0 + max(rawPhase - 0.55, 0.0) * 0.70);
+	float phasePeak = context.phasePeak;
 	float broadPhase = mix(0.44, phasePeak, 0.28);
 	float structure = smoothstep(0.018, 0.30, density + dimensionalProfile * 0.72);
 	float verticalProbability = 0.22 + 0.78 * smoothstep(0.020, 0.30, h);
@@ -819,9 +912,8 @@ vec3 CloudSampleLighting(
 		);
 	#endif
 
-	float sunsetBand = smoothstep(-0.12, 0.015, sunAltitude)
-		* (1.0 - smoothstep(0.08, 0.42, sunAltitude));
-	float sunFacingBase = Saturate(mu * 0.5 + 0.5);
+	float sunsetBand = context.sunsetBand;
+	float sunFacingBase = context.sunFacingBase;
 	float sunFacing = sunFacingBase * sunFacingBase * sunFacingBase;
 	float thinEdge = smoothstep(0.05, 0.85, primaryTransmission);
 	float upperCloud = smoothstep(0.15, 0.85, h);
@@ -854,8 +946,7 @@ vec3 CloudSampleLighting(
 	float skySoft = exp(-skyOptical * 0.22);
 	float topAccess = 0.18 + 0.82 * smoothstep(0.04, 0.84, h);
 	float bottomAccess = 1.0 - smoothstep(0.08, 0.45, h);
-	vec3 skyAmbient = CloudUniformSkyAmbientColor(sunAltitude, rainStrength);
-	vec3 skyIrradiance = mix(skyAmbient, skyColor, 0.18);
+	vec3 skyIrradiance = context.skyIrradiance;
 	float primarySkyEnergy = skyPrimary * topAccess * (0.36 + 0.46 * exp(-dimensionalProfile * 0.90));
 	#if FOXY_CLOUD_MULTISCATTERING == 0
 		float diffuseSkyEnergy = skySoft * (0.065 + 0.105 * structure) * (0.72 + 0.28 * topAccess + 0.10 * bottomAccess);
@@ -966,6 +1057,7 @@ vec4 CloudMarchLayer(
 	const in float time,
 	const in float rainStrength,
 	const in float rayPhaseSample,
+	const in vec3 skyFluenceRatio,
 	out vec3 undersideSampling,
 	out float apparentDistance
 ) {
@@ -1013,6 +1105,12 @@ vec4 CloudMarchLayer(
 	float cachedOpticalDepthDistance = 0.0;
 	float cachedOpticalDepthDensity = 0.0;
 	float cachedOpticalDepthProfile = 0.0;
+
+	#if FOXY_CLOUD_RAY_CONTEXT == 1
+		CloudLightingContext lightingContext = MakeCloudLightingContext(
+			rayDir, sunDir, moonDir, skyColor, rainStrength, skyFluenceRatio
+		);
+	#endif
 
 	for (int i = 0; i < FOXY_CLOUD_VOLUME_LOOP_STEPS; i++) {
 		if (i >= maxSteps) {
@@ -1066,7 +1164,12 @@ vec4 CloudMarchLayer(
 				float cacheShape = 1.0 - smoothstep(0.020, 0.14, cacheShapeDelta);
 				float reuseOpticalDepth = cachedOpticalDepthValid * lightingReuseLod * max(weakVisible, weakDensity) * cacheFresh * cacheShape;
 				float resolvedOpticalDepthSun = 0.0;
-				vec3 lighting = CloudSampleLighting(p, rayOrigin, rayDir, sunDir, moonDir, skyColor, effectiveDensity, sampleHeightFraction, sampleDimensionalProfile, sampleCoreDensity, time, rainStrength, cachedOpticalDepthSun, reuseOpticalDepth, resolvedOpticalDepthSun
+				#if FOXY_CLOUD_RAY_CONTEXT == 0
+					CloudLightingContext lightingContext = MakeCloudLightingContext(
+						rayDir, sunDir, moonDir, skyColor, rainStrength, skyFluenceRatio
+					);
+				#endif
+				vec3 lighting = CloudSampleLighting(p, rayOrigin, lightingContext, effectiveDensity, sampleHeightFraction, sampleDimensionalProfile, sampleCoreDensity, time, rainStrength, cachedOpticalDepthSun, reuseOpticalDepth, rayPhaseSample, resolvedOpticalDepthSun
 				);
 				if (reuseOpticalDepth <= 0.48) {
 					cachedOpticalDepthSun = resolvedOpticalDepthSun;
@@ -1107,13 +1210,13 @@ vec4 RenderCloudSystemDetailed(
 	const in float time,
 	const in float rainStrength,
 	const in float rayPhaseSample,
+	const in vec3 skyFluenceRatio,
 	out float apparentDistance
 ) {
 	apparentDistance = CLOUD_TRACE_LIMIT;
 	if (FOXY_CLOUDS == 0) {
 		return vec4(0.0);
 	}
-
 	float mainDistance = CLOUD_TRACE_LIMIT;
 	vec4 cloud = vec4(0.0);
 	vec3 undersideSampling = vec3(0.0);
@@ -1138,6 +1241,7 @@ vec4 RenderCloudSystemDetailed(
 		time,
 		rainStrength,
 		rayPhaseSample,
+		skyFluenceRatio,
 		undersideSampling,
 		mainDistance
 	);
@@ -1172,12 +1276,12 @@ float CloudShadowVisibilityAtPlane(
 	float blockInterior;
 	float blockCoverage = CloudBlockHorizontalShape(planePosition, time, blockInterior);
 	float blockAngleFade = smoothstep(0.006, 0.15, lightAltitude);
-	return 1.0 - blockCoverage * FOXY_CLOUD_SHADOW_STRENGTH * blockAngleFade;
+	return Saturate(1.0 - blockCoverage * FOXY_CLOUD_SHADOW_STRENGTH * blockAngleFade);
 	#else
 	float cloudPlane = CLOUD_LOW_BOTTOM + CloudPhysicalThickness() * 0.42;
 	vec3 p = vec3(planePosition.x, cloudPlane, planePosition.y);
 	vec3 advected = CloudAdvectedPosition(p, 0.46, time);
-	float coverage = Saturate(FOXY_CLOUD_COVERAGE * 0.96 + rainStrength * 0.18);
+	float coverage = Saturate(WeatherCloudCoverage(rainStrength) * WeatherCloudCoverageGain(rainStrength) * 0.96);
 	vec2 weather = texture2D(cloudWeatherMap, fract((advected.xz + cloudDailyOffset) * (CLOUD_MAP_SCALE * FOXY_CLOUD_SHAPE_SCALE))).xy;
 	float localCoverage = Saturate(weather.x * (coverage * 1.62));
 	if (localCoverage <= 0.015) {
@@ -1195,7 +1299,13 @@ float CloudShadowVisibilityAtPlane(
 	occlusion *= mix(0.72, 1.08, FOXY_CLOUD_DENSITY);
 	float angleFade = smoothstep(0.006, 0.15, lightAltitude);
 	float rainFade = mix(1.0, 0.50, rainStrength);
-	return 1.0 - occlusion * FOXY_CLOUD_SHADOW_STRENGTH * 1.35 * angleFade * rainFade;
+	// Saturate is load bearing, not cosmetic.  occlusion already carries a
+	// density boost of up to 1.08 and the shadow term adds another 1.35, so past
+	// about 0.686 of FOXY_CLOUD_SHADOW_STRENGTH this expression went negative.
+	// A negative visibility multiplied into the direct sun made the lit term
+	// negative, which surfaced as a blue-black patch surrounded by ground that
+	// the cloud no longer darkened.  A visibility can only be a fraction.
+	return Saturate(1.0 - occlusion * FOXY_CLOUD_SHADOW_STRENGTH * 1.35 * angleFade * rainFade);
 	#endif
 }
 
@@ -1240,7 +1350,6 @@ float CloudShadowVisibilityCached(
 	if (t <= 0.0 || t > CLOUD_TRACE_LIMIT) {
 		return 1.0;
 	}
-
 	vec2 planePosition = referenceWorldPos.xz + lightDir.xz * t;
 	vec2 cacheUv = (planePosition - CloudShadowCacheCenter(cameraWorldPos, lightDir)) / CLOUD_SHADOW_CACHE_EXTENT + vec2(0.5);
 	vec2 halfTexel = 0.5 / CLOUD_SHADOW_CACHE_SIZE;
@@ -1250,5 +1359,4 @@ float CloudShadowVisibilityCached(
 	}
 	return CloudShadowVisibilityReference(referenceWorldPos, lightDir, time, rainStrength);
 }
-
 #endif

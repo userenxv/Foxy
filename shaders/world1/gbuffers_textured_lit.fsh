@@ -1,4 +1,4 @@
-#version 120
+#version 430 compatibility
 #define FOXY_DIM_END
 #define ALPHA_TEST
 #define PT_REACTIVE_SURFACE

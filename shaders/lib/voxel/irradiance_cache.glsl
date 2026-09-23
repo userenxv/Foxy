@@ -62,7 +62,60 @@ uint IrcFrameTag(const in int frameIndex) {
 	return uint(max(frameIndex, 0)) + 1u;
 }
 
+bool IrcPartialShapeProbe(
+	const in ivec3 cell,
+	const in int descriptor,
+	out vec3 probePosition,
+	out vec3 probeNormal
+) {
+	const ivec3 offsets[6] = ivec3[6](
+		ivec3(1, 0, 0), ivec3(-1, 0, 0),
+		ivec3(0, 1, 0), ivec3(0, -1, 0),
+		ivec3(0, 0, 1), ivec3(0, 0, -1)
+	);
+	float bestReach = 2.0;
+	vec3 bestLocal = vec3(0.5);
+	vec3 bestNormal = vec3(0.0);
+	for (int index = 0; index < 6; ++index) {
+		ivec3 direction = offsets[index];
+		ivec3 neighbor = cell + direction;
+		if (!VoxelGridInside(neighbor)) continue;
+		if (VoxelGridTopologyOccupied(VoxelGridLoadUnchecked(neighbor))) continue;
+		float faceOffset = VoxelShapeSurfaceOffset(descriptor, direction);
+		float reach = direction.x + direction.y + direction.z > 0
+			? faceOffset
+			: 1.0 - faceOffset;
+		if (reach >= bestReach) continue;
+		vec3 local = VoxelShapeCentre(descriptor);
+		if (direction.x != 0) local.x = faceOffset;
+		if (direction.y != 0) local.y = faceOffset;
+		if (direction.z != 0) local.z = faceOffset;
+		bestReach = reach;
+		bestLocal = local;
+		bestNormal = vec3(direction);
+	}
+	if (bestReach > 1.5) return false;
+	probePosition = vec3(cell) + bestLocal + bestNormal * 0.03;
+	probeNormal = bestNormal;
+	return true;
+}
+
 vec3 IrcProbePosition(const in ivec3 cell) {
+	if (VoxelGridInside(cell)) {
+		uint cellPayload = VoxelGridLoadUnchecked(cell);
+		if (VoxelGridTopologyOccupied(cellPayload)) {
+			int cellShape = VoxelShapeDescriptorForPayload(
+				VoxelGridMaterial(cellPayload),
+				cellPayload
+			);
+			vec3 partialPosition;
+			vec3 partialNormal;
+			if (cellShape >= 0 &&
+				IrcPartialShapeProbe(cell, cellShape, partialPosition, partialNormal)) {
+				return partialPosition;
+			}
+		}
+	}
 	const ivec3 offsets[6] = ivec3[6](
 		ivec3(-1, 0, 0), ivec3(1, 0, 0),
 		ivec3(0, -1, 0), ivec3(0, 1, 0),
@@ -785,6 +838,19 @@ int IrcPartialShapeDescriptor(const in ivec3 cell) {
 	);
 }
 
+float IrcPartialProbeWeight(const in uint probePayload, const in ivec3 normalStep) {
+	int probeShape = VoxelShapeDescriptorForPayload(
+		VoxelGridMaterial(probePayload),
+		probePayload
+	);
+	if (probeShape < 0) return 0.0;
+	return 1.0 - smoothstep(
+		0.0,
+		0.5,
+		abs(VoxelShapeSurfaceOffset(probeShape, -normalStep))
+	);
+}
+
 float IrcSurfaceTopologyWeightWithStep(
 	const in ivec3 probeCell,
 	const in vec3 queryPosition,
@@ -811,8 +877,9 @@ float IrcSurfaceTopologyWeightWithStep(
 	}
 	uint probeAirPayload = VoxelGridLoadUnchecked(probeCell);
 	uint probePayload = VoxelGridLoadUnchecked(probeSurfaceCell);
-	return !VoxelGridTopologyOccupied(probeAirPayload) &&
-		VoxelGridTopologyOccupied(probePayload) ? 1.0 : 0.0;
+	if (!VoxelGridTopologyOccupied(probeAirPayload) &&
+		VoxelGridTopologyOccupied(probePayload)) return 1.0;
+	return IrcPartialProbeWeight(probeAirPayload, normalStep);
 }
 
 float IrcSurfaceTopologyWeightPrepared(
@@ -834,8 +901,9 @@ float IrcSurfaceTopologyWeightPrepared(
 	}
 	uint probeAirPayload = VoxelGridLoadUnchecked(probeCell);
 	uint probePayload = VoxelGridLoadUnchecked(probeSurfaceCell);
-	return !VoxelGridTopologyOccupied(probeAirPayload) &&
-		VoxelGridTopologyOccupied(probePayload) ? 1.0 : 0.0;
+	if (!VoxelGridTopologyOccupied(probeAirPayload) &&
+		VoxelGridTopologyOccupied(probePayload)) return 1.0;
+	return IrcPartialProbeWeight(probeAirPayload, normalStep);
 }
 
 float IrcSurfaceTopologyWeight(

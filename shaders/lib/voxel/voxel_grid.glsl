@@ -405,7 +405,8 @@ void VoxelGridStoreScene(
 	const in uint materialId,
 	const in vec3 sceneNormal,
 	const in float emissionLevel,
-	const in vec2 lightmapUv
+	const in vec2 lightmapUv,
+	const in bool emitterOnly
 ) {
 	uint storedMaterialId = VoxelMaterialForGeometry(
 		materialId,
@@ -414,7 +415,23 @@ void VoxelGridStoreScene(
 		sceneNormal
 	);
 
-if (VoxelExcludedMaterial(storedMaterialId)) return;
+	if (VoxelExcludedMaterial(storedMaterialId)) return;
+
+	uint encodedEmission = uint(clamp(
+		floor(max(emissionLevel, 0.0) + 0.5),
+		0.0,
+		15.0
+	));
+	encodedEmission = max(
+		encodedEmission,
+		VoxelFallbackEmissionLevel(storedMaterialId)
+	);
+
+	#ifdef FOXY_VOXEL_SKIP_UNKNOWN_CUTOUT
+		if (storedMaterialId == 0u && encodedEmission == 0u) return;
+	#endif
+
+	if (emitterOnly && encodedEmission == 0u) return;
 
 	ivec3 cell = ivec3(floor(VoxelGridSceneToGrid(
 		scenePosition,
@@ -429,15 +446,9 @@ if (VoxelExcludedMaterial(storedMaterialId)) return;
 		vec2(0.0),
 		vec2(15.0)
 	));
-	uint encodedEmission = uint(clamp(
-		floor(max(emissionLevel, 0.0) + 0.5),
-		0.0,
-		15.0
-	));
-	encodedEmission = max(
-		encodedEmission,
-		VoxelFallbackEmissionLevel(storedMaterialId)
-	);
+	uint payloadMaterialId = encodedEmission > 0u && !VoxelEmitterMaterial(storedMaterialId)
+		? uint(FOXY_GENERIC_EMITTER_MATERIAL)
+		: storedMaterialId;
 	uint storedLightLevel = encodedEmission > 0u
 		? encodedEmission
 		: lightLevels.x;
@@ -446,7 +457,7 @@ if (VoxelExcludedMaterial(storedMaterialId)) return;
 		: max(lightLevels.x, lightLevels.y);
 	uint normalCode = VoxelEncodeAxisNormal(sceneNormal);
 	uint payload = VOXEL_OCCUPIED_BIT |
-		(storedMaterialId & VOXEL_MATERIAL_MASK) |
+		(payloadMaterialId & VOXEL_MATERIAL_MASK) |
 		(selectionLevel << FOXY_VOXEL_PRIORITY_SHIFT) |
 		(normalCode << FOXY_VOXEL_NORMAL_SHIFT) |
 		(lightLevels.y << FOXY_VOXEL_SKY_LIGHT_SHIFT) |
@@ -461,7 +472,7 @@ if (!VoxelGridOccupied(previousPayload)) {
 	#if FOXY_IRRADIANCE_CACHE_ACTIVE == 1
 
 if (encodedEmission > 0u) {
-			uint emitterPrimitiveCode = VoxelSphereEmitterMaterial(storedMaterialId)
+			uint emitterPrimitiveCode = VoxelSphereEmitterMaterial(payloadMaterialId)
 				? 0u
 				: normalCode;
 			VoxelEmitterFaceAppend(cell, emitterPrimitiveCode);

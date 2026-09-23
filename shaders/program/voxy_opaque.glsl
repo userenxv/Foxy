@@ -25,9 +25,16 @@ void voxy_emitFragment(VoxyFragmentParameters parameters) {
 	vec3 albedo = SrgbToLinear(baseSrgb);
 	vec3 sunWorld = vec3(0.0, 1.0, 0.0);
 	vec3 moonWorld = vec3(0.0, -1.0, 0.0);
-#if !defined(FOXY_DIM_NETHER) && !defined(FOXY_DIM_END)
-	sunWorld = normalize(sun_dir);
-	moonWorld = normalize(moon_dir);
+#if defined(FOXY_DIM_END)
+	sunWorld = normalize(EndKeyLightDirection(frameTimeCounter));
+	moonWorld = -sunWorld;
+#elif !defined(FOXY_DIM_NETHER)
+	vec3 sunViewDirection = sunPosition;
+	vec3 moonViewDirection = moonPosition;
+	if (length(sunViewDirection) <= 1.0e-5) sunViewDirection = vec3(0.0, 1.0, 0.0);
+	if (length(moonViewDirection) <= 1.0e-5) moonViewDirection = vec3(0.0, -1.0, 0.0);
+	sunWorld = normalize(mat3(gbufferModelViewInverse) * sunViewDirection);
+	moonWorld = normalize(mat3(gbufferModelViewInverse) * moonViewDirection);
 #endif
 	vec3 ambient;
 	vec3 directSun;
@@ -53,7 +60,10 @@ void voxy_emitFragment(VoxyFragmentParameters parameters) {
 
 	float materialId = VoxyMaterialId(parameters.customId);
 	float surfaceClass = PT_SURFACE_OPAQUE;
-	if (abs(materialId - 10100.0) < 0.5) {
+	if (
+		abs(materialId - 10100.0) < 0.5 ||
+		abs(materialId - 12000.0) < 0.5
+	) {
 		surfaceClass = PT_SURFACE_FOLIAGE;
 	} else if (materialId >= 10101.0 && materialId <= 10103.0) {
 		surfaceClass = PT_SURFACE_PLANT;

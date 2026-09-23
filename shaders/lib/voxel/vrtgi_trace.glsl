@@ -36,6 +36,7 @@ int VoxelGiTrace(
 	const in float maximumDistance,
 	const in int maximumIterations,
 	const in bool skipOriginCell,
+	const in bool skipFoliageCasters,
 	out uint hitPayload,
 	out float hitDistance,
 	out ivec3 hitCell,
@@ -201,8 +202,11 @@ if (dot(inputDirection, inputDirection) < 1.0e-14) {
 		}
 		float cellSegmentEnd = min(nextTravel, traceEnd);
 		uint payload = VoxelGridLoadUnchecked(cell);
-		if (VoxelGridOccupied(payload)) {
-			uint materialId = VoxelGridMaterial(payload);
+		uint materialId = VoxelGridMaterial(payload);
+		bool skipFoliage = skipFoliageCasters && (
+			(materialId >= 10100u && materialId <= 10103u) || materialId == 12000u
+		);
+		if (VoxelGridOccupied(payload) && !skipFoliage) {
 			if (VoxelSphereEmitterMaterial(materialId)) {
 
 				float chordWeight = VoxelGiSphereChordWeight(
@@ -214,7 +218,9 @@ if (dot(inputDirection, inputDirection) < 1.0e-14) {
 				);
 				if (chordWeight > 0.0) {
 					sphereRadiance += rayTransmittance *
-						VoxelGiEmission(payload) * chordWeight;
+						FoxyIndirectColorTemperature(
+							VoxelGiEmission(payload)
+						) * chordWeight;
 				}
 			} else {
 				int shapeDescriptor = VoxelShapeDescriptorForPayload(
@@ -323,3 +329,31 @@ if (dot(inputDirection, inputDirection) < 1.0e-14) {
 	return FOXY_VOXEL_GI_TRACE_STEP_LIMIT;
 }
 
+int VoxelGiTrace(
+	const in vec3 rayOrigin,
+	const in vec3 inputDirection,
+	const in float maximumDistance,
+	const in int maximumIterations,
+	const in bool skipOriginCell,
+	out uint hitPayload,
+	out float hitDistance,
+	out ivec3 hitCell,
+	out vec3 hitNormal,
+	out vec3 sphereRadiance,
+	out vec3 rayTransmittance
+) {
+	return VoxelGiTrace(
+		rayOrigin,
+		inputDirection,
+		maximumDistance,
+		maximumIterations,
+		skipOriginCell,
+		false,
+		hitPayload,
+		hitDistance,
+		hitCell,
+		hitNormal,
+		sphereRadiance,
+		rayTransmittance
+	);
+}

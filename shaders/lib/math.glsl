@@ -93,8 +93,6 @@ vec3 Dither8Bit3(const in vec3 x, const in float pattern) {
 	return Saturate3(x + vec3((pattern - 0.5) / 255.0));
 }
 
-// Derived from David Hoskins' MIT-licensed Hash without Sine collection.
-// The required license notice is retained in /THIRD_PARTY_NOTICES.txt.
 float Hash12(const in vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
 	p3 += dot(p3, p3.yzx + 33.33);
@@ -105,6 +103,10 @@ float Hash13(const in vec3 p) {
 	vec3 p3 = fract(p * 0.1031);
 	p3 += dot(p3, p3.yzx + 33.33);
 	return fract((p3.x + p3.y) * p3.z);
+}
+
+float ReflectionMarchDither(const in vec2 pixel, const in int frame) {
+	return fract(Hash12(pixel + vec2(17.0, 43.0)) + float(frame) * 0.61803399);
 }
 
 float ValueNoise(const in vec2 p) {
@@ -190,8 +192,6 @@ float Fbm3Fast(const in vec3 p) {
 	return v;
 }
 
-// Derived from the MIT-licensed BakingLab ACES fit by Stephen Hill/MJP.
-// The required license notice is retained in /THIRD_PARTY_NOTICES.txt.
 vec3 TonemapAcesFitted(const in vec3 color) {
 
 	const mat3 acesInput = mat3(
@@ -209,6 +209,67 @@ vec3 TonemapAcesFitted(const in vec3 color) {
 	vec3 denominator = x * (0.983729 * x + 0.4329510) + 0.238081;
 	return Saturate3(acesOutput * (numerator / max(denominator, vec3(1.0e-6))));
 }
+
+#if FOXY_TONEMAPPER == 6
+float Aces2Tonescale(const in float x) {
+	#if FOXY_ACES2_PEAK == 1
+		const float tonescaleM = 2.08512960;
+		const float tonescaleS = 1.64218313;
+		const float tonescaleScale = 100.0 / 203.0;
+	#elif FOXY_ACES2_PEAK == 2
+		const float tonescaleM = 10.17291138;
+		const float tonescaleS = 5.89592689;
+		const float tonescaleScale = 100.0 / 1000.0;
+	#else
+		const float tonescaleM = 1.04710376;
+		const float tonescaleS = 0.91985825;
+		const float tonescaleScale = 1.0;
+	#endif
+	const float tonescaleG = 1.15;
+	const float tonescaleT = 0.04;
+	float positiveX = max(x, 0.0);
+	float f = tonescaleM * pow(positiveX / (positiveX + tonescaleS), tonescaleG);
+	return f * f / max(f + tonescaleT, 1.0e-6) * tonescaleScale;
+}
+
+vec3 TonemapAces2(const in vec3 color) {
+	const mat3 acesInput = mat3(
+		0.61309740, 0.33952315, 0.04737945,
+		0.07019372, 0.91635388, 0.01345240,
+		0.02061559, 0.10956977, 0.86981463
+	);
+	const mat3 acesOutput = mat3(
+		 1.70505099, -0.62179212, -0.08325887,
+		-0.13025642,  1.14080474, -0.01054832,
+		-0.02400336, -0.12896898,  1.15297233
+	);
+	vec3 ap1 = max(acesInput * max(color * FOXY_ACES2_EXPOSURE, vec3(0.0)), vec3(0.0));
+	float sceneLuma = dot(ap1, vec3(0.27222872, 0.67408177, 0.05368952));
+	float displayLuma = Aces2Tonescale(sceneLuma);
+	float luminanceScale = displayLuma / max(sceneLuma, 1.0e-6);
+	vec3 mapped = ap1 * luminanceScale;
+	float mappedLuma = dot(mapped, vec3(0.27222872, 0.67408177, 0.05368952));
+	float mappedPeak = max(max(mapped.r, mapped.g), mapped.b);
+	float mappedChroma = mappedPeak / max(mappedLuma, 1.0e-6);
+	float highlightWeight = smoothstep(0.16, 0.92, displayLuma);
+	float chromaRollOff = smoothstep(1.20, 3.25, mappedChroma) * highlightWeight;
+	float chromaKeep = mix(1.0, FOXY_ACES2_CHROMA, chromaRollOff);
+	mapped = mix(vec3(mappedLuma), mapped, chromaKeep);
+	float pivot = 0.18;
+	mapped = max((mapped - vec3(pivot)) * FOXY_ACES2_CONTRAST + vec3(pivot), vec3(0.0));
+	vec3 outputRgb = acesOutput * mapped;
+	float outputPeak = max(max(outputRgb.r, outputRgb.g), outputRgb.b);
+	float outputFloor = min(min(outputRgb.r, outputRgb.g), outputRgb.b);
+	float outputChroma = max(outputPeak - outputFloor, 0.0);
+	float gamutPressure = smoothstep(0.035, 0.42, outputChroma) *
+		smoothstep(0.74, 1.04, outputPeak);
+	float excess = max(outputPeak - 0.74, 0.0);
+	float compressedPeak = 0.74 + excess / (1.0 + excess * 1.35);
+	vec3 compressedRgb = outputRgb * (compressedPeak / max(outputPeak, 1.0e-6));
+	outputRgb = mix(outputRgb, compressedRgb, gamutPressure * 0.92);
+	return Saturate3(outputRgb);
+}
+#endif
 
 float TonemapFilmicCurve(const in float x) {
 	const float a = 0.15;
@@ -233,8 +294,6 @@ vec3 TonemapFilmic(const in vec3 color) {
 	return Saturate3(mapped / max(peak, 1.0));
 }
 
-// Derived from Benjamin Wrensch's MIT-licensed Minimal AgX implementation.
-// The required license notice is retained in /THIRD_PARTY_NOTICES.txt.
 vec3 TonemapAgx(const in vec3 color) {
 
 	const mat3 inset = mat3(
@@ -253,6 +312,15 @@ vec3 TonemapAgx(const in vec3 color) {
 	vec3 x4 = x2 * x2;
 	x = 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4
 		- 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
+	#if FOXY_AGX_LOOK == 1
+		x = pow(max(x * vec3(1.0, 0.985, 0.94), vec3(0.0)), vec3(0.95));
+		float lookLuma = dot(x, vec3(0.2126, 0.7152, 0.0722));
+		x = mix(vec3(lookLuma), x, 0.96);
+	#elif FOXY_AGX_LOOK == 2
+		x = pow(max(x, vec3(0.0)), vec3(1.12));
+		float lookLuma = dot(x, vec3(0.2126, 0.7152, 0.0722));
+		x = mix(vec3(lookLuma), x, 1.10);
+	#endif
 	x = max(outset * x, vec3(0.0));
 	return Saturate3(pow(x, vec3(2.2)));
 }
@@ -312,6 +380,8 @@ vec3 TonemapWithExposure(
 		return TonemapUchimura(x);
 	#elif FOXY_TONEMAPPER == 5
 		return TonemapLottes(x);
+	#elif FOXY_TONEMAPPER == 6
+		return TonemapAces2(x);
 	#endif
 	float luma = Luma(x);
 	float toe = mix(1.0, 0.82, Saturate(FOXY_COLOR_SHADOW_CURVE));
@@ -344,7 +414,11 @@ vec3 TonemapWithExposure(
 	#endif
 	float sat = mix(FOXY_COLOR_SATURATION * 1.04 * atmosphereSat, min(FOXY_COLOR_SATURATION * atmosphereSat, 1.02), gamutProtect * highlightDesaturation);
 	float night = Saturate(nightAdaptation);
-	float nightSaturationLimit = mix(1.02, 0.96, Saturate(FOXY_PURKINJE_SHIFT));
+	#if FOXY_PURKINJE_ENABLED == 1
+		float nightSaturationLimit = mix(1.02, 0.96, Saturate(FOXY_PURKINJE_SHIFT));
+	#else
+		float nightSaturationLimit = 1.02;
+	#endif
 	sat = mix(sat, min(sat, nightSaturationLimit), night * 0.72);
 	mapped = mix(vec3(mappedLuma), mapped, sat);
 	blackPoint *= mix(1.0, 0.28, night);
@@ -358,6 +432,46 @@ vec3 TonemapWithExposure(const in vec3 color, const in float exposureScale, cons
 
 vec3 TonemapWithExposure(const in vec3 color, const in float exposureScale) {
 	return TonemapWithExposure(color, exposureScale, 0.0);
+}
+
+vec3 TonemapSceneWithExposure(
+	const in vec3 sceneColor,
+	const in float exposureScale,
+	const in float nightAdaptation,
+	const in float presentationDayWeight
+) {
+	#if FOXY_TONEMAPPER == 6
+		return TonemapWithExposure(
+			sceneColor * FOXY_ACES2_SCENE_REFERENCE_SCALE,
+			exposureScale,
+			nightAdaptation,
+			presentationDayWeight
+		);
+	#else
+		return TonemapWithExposure(
+			sceneColor,
+			exposureScale,
+			nightAdaptation,
+			presentationDayWeight
+		);
+	#endif
+}
+
+vec3 TonemapSceneInputWithExposure(
+	const in vec3 sceneColor,
+	const in float exposureScale,
+	const in float presentationDayWeight
+) {
+	vec3 color = sceneColor;
+	#if FOXY_TONEMAPPER == 6
+		color *= FOXY_ACES2_SCENE_REFERENCE_SCALE;
+	#endif
+	return max(color * (
+		FOXY_PRESENTATION_MANUAL_EXPOSURE *
+		exposureScale *
+		PresentationPostExposureCalibration(presentationDayWeight) *
+		FOXY_POST_EXPOSURE_BRIGHTNESS
+	), vec3(0.0));
 }
 
 vec3 Tonemap(const in vec3 color) {

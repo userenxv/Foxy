@@ -32,7 +32,10 @@ bool EmissionLavaMaterial(const in float materialId) {
 		materialId == 10198.0;
 }
 
+const float FOXY_GENERIC_EMITTER_MATERIAL = 10233.0;
+
 float EmissionPrimitive(const in float materialId) {
+	if (materialId == FOXY_GENERIC_EMITTER_MATERIAL) return FOXY_EMISSIVE_SURFACE;
 	if (materialId < 10170.0 || materialId > 10232.0) return FOXY_EMISSIVE_NONE;
 	if (materialId == 10170.0 || materialId == 10171.0 ||
 		materialId == 10178.0 || materialId == 10179.0 ||
@@ -106,6 +109,7 @@ float EmissionRadiance(const in float materialId) {
 	if (materialId == 10193.0) return 0.62;
 	if (materialId == 10194.0) return 0.56;
 	if (materialId == 10195.0 || materialId == 10196.0 || materialId == 10232.0) return 0.56;
+	if (materialId == FOXY_GENERIC_EMITTER_MATERIAL) return 0.62;
 	return 0.0;
 }
 
@@ -133,6 +137,11 @@ float EmissionFallbackLevel(const in float materialId) {
 	if (materialId == 10196.0) return 4.0;
 	if (materialId == 10232.0) return 14.0;
 	return 0.0;
+}
+
+float BlockEmissionLevel(const in float materialId, const in vec4 midBlock) {
+	float level = floor(max(midBlock.w, 0.0) + 0.5);
+	return level < 2.0 ? EmissionFallbackLevel(materialId) : level;
 }
 
 #endif

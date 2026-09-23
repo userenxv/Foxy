@@ -2,6 +2,7 @@
 #define FOXY_CLOUD_COVERAGE_GLSL
 
 #include "/lib/settings.glsl"
+#include "/lib/weather.glsl"
 
 #ifndef CLOUD_WEATHER_REGION_SCALE
 #define CLOUD_WEATHER_REGION_SCALE 0.5

@@ -8,8 +8,8 @@
 
 float MaterialReflectionSmoothness(const in float perceptualRoughness) {
 	return 1.0 - smoothstep(
-		FOXY_MATERIAL_REFLECTION_ROUGHNESS_CUTOFF * 0.72,
-		FOXY_MATERIAL_REFLECTION_ROUGHNESS_CUTOFF,
+		FOXY_MATERIAL_REFLECTION_ROUGHNESS_CUTOFF_ACTIVE * 0.72,
+		FOXY_MATERIAL_REFLECTION_ROUGHNESS_CUTOFF_ACTIVE,
 		perceptualRoughness
 	);
 }
@@ -20,7 +20,7 @@ float MaterialReflectionType(
 	return mix(
 		FOXY_REFLECTION_TYPE_SMOOTH,
 		FOXY_REFLECTION_TYPE_ROUGH,
-		step(FOXY_MATERIAL_REFLECTION_SMOOTH_ROUGHNESS, perceptualRoughness)
+		step(FOXY_MATERIAL_REFLECTION_SMOOTH_ROUGHNESS_ACTIVE, perceptualRoughness)
 	);
 }
 

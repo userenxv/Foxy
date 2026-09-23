@@ -2,8 +2,6 @@
 #define FOXY_CONTRACT_MATERIAL_GLSL
 
 const float FOXY_MATERIAL_WATER_SENTINEL = 1.0;
-const float FOXY_MATERIAL_WATER_GLINT_MAX = 192.0;
-const float FOXY_MATERIAL_WATER_GLINT_LOG_RANGE = 7.59245703727;
 const float FOXY_MATERIAL_GLASS_SENTINEL = 0.996;
 
 vec2 MaterialEncodeWaterNormal(const in vec3 inputNormal) {

@@ -1,3 +1,5 @@
+#include "/lib/settings.glsl"
+
 #ifdef COLORWHEEL
 uniform sampler2D gtexture;
 #else
@@ -5,13 +7,23 @@ uniform sampler2D texture;
 #endif
 uniform mat4 gbufferModelViewInverse;
 uniform vec3 shadowLightPosition;
-uniform float frameTimeCounter;
+
+#if FOXY_RAY_MODE == FOXY_RAY_RSM
+/* DRAWBUFFERS:01 */
+#else
+/* DRAWBUFFERS:0 */
+#endif
 
 varying vec2 texcoord;
 varying vec4 surfaceColor;
 varying vec3 surfaceWorldPosition;
 varying float isWater;
 varying float vertexMaterialId;
+
+#if FOXY_RAY_MODE == FOXY_RAY_RSM
+	#include "/lib/rsm_axis.glsl"
+	varying vec3 surfaceShadowNormal;
+#endif
 
 #include "/lib/math.glsl"
 #include "/lib/celestial.glsl"
@@ -45,16 +57,28 @@ void main() {
 		vec3 waterTint = waterTransmittance / max(Luma(waterTransmittance), 0.05);
 		vec3 directScale = vec3(FOXY_WATER_ABOVE_DIRECT_LIGHT) * mix(vec3(1.0), clamp(waterTint, vec3(0.72), vec3(1.18)), 0.12);
 		directScale *= 1.0 + causticFocus;
-		gl_FragColor = vec4(clamp(directScale, vec3(0.02), vec3(0.985)), 1.0);
+		gl_FragData[0] = vec4(clamp(directScale, vec3(0.02), vec3(0.985)), 1.0);
+		#if FOXY_RAY_MODE == FOXY_RAY_RSM
+			gl_FragData[1] = vec4(0.0);
+		#endif
 		return;
 	}
 
 	if (TransmissionIsGlass(vertexMaterialId)) {
 
 vec3 transmission = TransmissionColor(vertexMaterialId);
-		gl_FragColor = vec4(clamp(transmission, vec3(0.02), vec3(0.96)), 1.0);
+		gl_FragData[0] = vec4(clamp(transmission, vec3(0.02), vec3(0.96)), 1.0);
+		#if FOXY_RAY_MODE == FOXY_RAY_RSM
+			gl_FragData[1] = vec4(0.0);
+		#endif
 		return;
 	}
 
-	gl_FragColor = vec4(1.0);
+	gl_FragData[0] = vec4(1.0);
+	#if FOXY_RAY_MODE == FOXY_RAY_RSM
+		gl_FragData[1] = vec4(
+			SrgbToLinear(Saturate3(texel.rgb)),
+			RsmPackAxisNormal(normalize(surfaceShadowNormal))
+		);
+	#endif
 }

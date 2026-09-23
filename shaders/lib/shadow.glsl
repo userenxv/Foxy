@@ -3,6 +3,61 @@
 
 #include "/lib/settings.glsl"
 #include "/lib/math.glsl"
+#include "/lib/end_key_light.glsl"
+
+mat3 FoEndShadowAimFromLightDirection(const in vec3 lightDirection) {
+#if defined(FOXY_DIM_END)
+	vec3 target = normalize(EndKeyLightDirection(frameTimeCounter));
+	vec3 gameLight = normalize(lightDirection);
+	vec3 axis = cross(target, gameLight);
+	float axisLen = length(axis);
+	if (axisLen < 1.0e-5) return mat3(1.0);
+	axis /= axisLen;
+	float c = clamp(dot(target, gameLight), -1.0, 1.0);
+	float angle = acos(c);
+	float s = sin(angle);
+	float t = 1.0 - c;
+	return mat3(
+		vec3(t * axis.x * axis.x + c,           t * axis.x * axis.y + s * axis.z, t * axis.x * axis.z - s * axis.y),
+		vec3(t * axis.x * axis.y - s * axis.z,  t * axis.y * axis.y + c,          t * axis.y * axis.z + s * axis.x),
+		vec3(t * axis.x * axis.z + s * axis.y,  t * axis.y * axis.z - s * axis.x, t * axis.z * axis.z + c)
+	);
+#else
+	return mat3(1.0);
+#endif
+}
+
+mat3 FoEndShadowAim(const in mat4 lightViewInverse) {
+	return FoEndShadowAimFromLightDirection(
+		mat3(lightViewInverse) * vec3(0.0, 0.0, 1.0)
+	);
+}
+
+mat3 FoEndShadowAimFromView(const in mat4 lightView) {
+	return FoEndShadowAimFromLightDirection(vec3(
+		lightView[0][2],
+		lightView[1][2],
+		lightView[2][2]
+	));
+}
+
+mat4 FoEndShadowProjection(const in mat4 commonProjection) {
+#if defined(FOXY_DIM_END)
+	float invX = abs(commonProjection[0][0]);
+	float invY = abs(commonProjection[1][1]);
+	float halfX = 1.0 / max(invX, 1.0e-6);
+	float halfY = 1.0 / max(invY, 1.0e-6);
+	float depth = max(max(halfX, halfY) * 2.5, 256.0);
+	return mat4(
+		vec4(invX, 0.0, 0.0, 0.0),
+		vec4(0.0, invY, 0.0, 0.0),
+		vec4(0.0, 0.0, -1.0 / depth, 0.0),
+		vec4(0.0, 0.0, 0.5, 1.0)
+	);
+#else
+	return commonProjection;
+#endif
+}
 
 const float SHADOW_AFFINE_FILTER_MIN_FACTOR = 0.41;
 const float SHADOW_RECEIVER_PLANE_BIAS_SCALE = 1.12;
@@ -10,14 +65,16 @@ const float SHADOW_RECEIVER_PLANE_BIAS_MAX = 0.0035;
 
 const float SHADOW_MIN_FILTER_TEXELS = 0.42;
 
+const float SHADOW_WARP_MIN_FACTOR = 0.10;
+
 float ShadowWarpFactor(const in vec2 clipXY) {
 	float warp = Saturate(FOXY_SHADOW_WARP);
 	float warp2 = warp * warp;
-	return 1.0 - warp2 + 1.16 * warp2 * length(clipXY);
+	return 1.0 - warp + 1.16 * warp2 * length(clipXY);
 }
 
 vec2 ShadowWarp(const in vec2 clipXY) {
-	return clipXY / max(ShadowWarpFactor(clipXY), 0.18);
+	return clipXY / max(ShadowWarpFactor(clipXY), SHADOW_WARP_MIN_FACTOR);
 }
 
 vec4 ShadowWarpClip(const in vec4 clipPosition) {
@@ -33,14 +90,14 @@ void ShadowWarpJacobianData(
 ) {
 	float warp = Saturate(FOXY_SHADOW_WARP);
 	float warp2 = warp * warp;
-	float base = 1.0 - warp2;
+	float base = 1.0 - warp;
 	float slope = 1.16 * warp2;
 	float radius = length(clipXY);
 	float rawFactor = base + slope * radius;
-	float factor = max(rawFactor, 0.18);
+	float factor = max(rawFactor, SHADOW_WARP_MIN_FACTOR);
 	effectiveFactor = factor;
 
-	float radialScale = rawFactor <= 0.18 ? 1.0 / factor : base / (factor * factor);
+	float radialScale = rawFactor <= SHADOW_WARP_MIN_FACTOR ? 1.0 / factor : base / (factor * factor);
 	float tangentScale = 1.0 / factor;
 	if (radius <= 1.0e-5) {
 		jacobian = mat2(tangentScale, 0.0, 0.0, tangentScale);

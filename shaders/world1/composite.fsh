@@ -1,4 +1,4 @@
-#version 400 compatibility
+#version 430 compatibility
 #define FOXY_DIM_END
 #define FOXY_FULLSCREEN_CLOUD_CACHE
 /* RENDERTARGETS: 1,10 */

@@ -3,7 +3,9 @@
 layout(rgba16f) readonly uniform image2D img_ptTrace;
 layout(rgba16f) readonly uniform image2D img_ptHistoryMetaA;
 layout(rgba16f) readonly uniform image2D img_ptHistoryMetaB;
-#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_IRC_MODE == 1
+// RSM runs an even number of a-trous passes after the temporal resolve, so the final
+// signal lands back in img_ptFilteredA instead of img_ptFiltered.
+#if (FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_IRC_MODE == 1) || FOXY_RSM_ACTIVE == 1
 	layout(rgba16f) readonly uniform image2D img_ptFilteredA;
 #else
 	layout(rgba16f) readonly uniform image2D img_ptFiltered;
@@ -55,7 +57,7 @@ bool SsptCompositeReadsA() {
 }
 
 vec4 SsptCompositeSignal(const in ivec2 pixel) {
-	#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_IRC_MODE == 1
+	#if (FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_IRC_MODE == 1) || FOXY_RSM_ACTIVE == 1
 		return imageLoad(img_ptFilteredA, pixel);
 	#else
 		return imageLoad(img_ptFiltered, pixel);
@@ -63,7 +65,7 @@ vec4 SsptCompositeSignal(const in ivec2 pixel) {
 }
 
 ivec2 SsptCompositeSignalSize() {
-	#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_IRC_MODE == 1
+	#if (FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_IRC_MODE == 1) || FOXY_RSM_ACTIVE == 1
 		return SrActiveRaySceneSize(imageSize(img_ptFilteredA));
 	#else
 		return SrActiveRaySceneSize(imageSize(img_ptFiltered));
@@ -154,6 +156,7 @@ float SsptCompositeDiffuseReceiver(const in float surfaceClass) {
 
 	return 1.0 - PtSurfaceIsEmissive(surfaceClass);
 }
+
 
 vec3 SsptCompositeThinViewNormal(const in vec3 viewPosition) {
 	float viewLengthSquared = dot(viewPosition, viewPosition);

@@ -31,6 +31,9 @@ uniform mat4 gbufferModelViewInverse;
 #endif
 uniform int frameCounter;
 uniform vec2 temporalJitter;
+uniform vec3 sunPosition;
+uniform vec3 moonPosition;
+uniform float rainStrength;
 #if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 3
 	uniform vec2 previousTemporalJitter;
 #endif
@@ -131,11 +134,12 @@ BackendOpaqueSurface MaterialReflectionOpaqueSurface(
 	);
 }
 
-vec4 MaterialReflectionFilterSource(const in vec2 uv) {
+vec4 MaterialReflectionFilterSource(const in vec2 viewUv) {
+	vec2 renderUv = MaterialReflectionRenderUv(viewUv);
 	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 0 || FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 1 || FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 2
-		return texture2D(colortex14, uv);
+		return texture2D(colortex14, renderUv);
 	#else
-		return texture2D(colortex0, uv);
+		return texture2D(colortex0, renderUv);
 	#endif
 }
 
@@ -286,7 +290,6 @@ vec4 FilterMaterialReflection(
 	temporalLowerBound = vec3(0.0);
 	temporalUpperBound = vec3(65504.0);
 	#if FOXY_MATERIAL_REFLECTION_FILTER_ORDER == 3
-		if (centerMaterial.reflectionType < 1.5) return centerSignal;
 		vec3 encodedCurrent = ReflectionTemporalEncodeColor(centerSignal.rgb);
 		temporalLowerBound = max(encodedCurrent - vec3(1.25), vec3(0.0));
 		temporalUpperBound = encodedCurrent + vec3(1.25);
@@ -450,14 +453,14 @@ vec4 FilterMaterialReflection(
 			float sampleLinearDepth;
 			if (i == 0) {
 				sampleMaterial = centerMaterial;
-				sampleSignal = texture2D(colortex0, sampleRasterUv);
+				sampleSignal = texture2D(colortex0, MaterialReflectionRenderUv(sampleRasterUv));
 				sampleLinearDepth = centerLinearDepth;
 			} else {
 				BackendOpaqueSurface sampleSurface = MaterialReflectionOpaqueSurface(sampleRasterUv);
 				float sampleDepthRaw = sampleSurface.rawDepth;
 				vec4 samplePacket = texture2D(colortex2, MaterialReflectionPayloadUv(sampleRasterUv));
 				sampleMaterial = DecodeMaterialReflectionGuide(samplePacket, sampleDepthRaw);
-				sampleSignal = texture2D(colortex0, sampleRasterUv);
+				sampleSignal = texture2D(colortex0, MaterialReflectionRenderUv(sampleRasterUv));
 				sampleLinearDepth = max(-sampleSurface.viewPosition.z, 0.0);
 			}
 			float signalValid = step(1.0e-7, max(sampleSignal.r, max(sampleSignal.g, sampleSignal.b)));
@@ -526,7 +529,7 @@ void main() {
 			unusedTemporalUpperBound
 		);
 	#else
-		vec4 staging = texture2D(colortex11, rasterUv);
+		vec4 staging = texture2D(colortex11, renderUv);
 		if (enabled < 0.5) {
 			gl_FragData[0] = staging;
 			gl_FragData[1] = vec4(0.0);
@@ -540,29 +543,6 @@ void main() {
 		);
 		vec3 currentViewPosition = opaqueSurface.viewPosition;
 		float linearDepth = max(-currentViewPosition.z, 0.0);
-		vec3 unusedTemporalLowerBound;
-		vec3 unusedTemporalUpperBound;
-		if (material.reflectionType < 1.5) {
-			vec3 sceneColor = max(DecodeSceneColor(staging.rgb), vec3(0.0));
-			vec4 currentReflection = FilterMaterialReflection(
-				rasterUv,
-				material,
-				linearDepth,
-				currentViewPosition,
-				unusedTemporalLowerBound,
-				unusedTemporalUpperBound
-			);
-			vec3 combined = ApplyMaterialReflection(
-				sceneColor,
-				viewUv,
-				renderUv,
-				packedSurface,
-				currentReflection
-			);
-			gl_FragData[0] = vec4(EncodeSceneColor(combined), staging.a);
-			gl_FragData[1] = vec4(0.0);
-			return;
-		}
 		vec3 temporalLowerBound;
 		vec3 temporalUpperBound;
 		vec4 filteredReflection = FilterMaterialReflection(
@@ -573,24 +553,33 @@ void main() {
 			temporalLowerBound,
 			temporalUpperBound
 		);
-		float currentAvailable = step(0.01, filteredReflection.a);
-		ReflectionReprojection reflectionReprojection = ReflectionBuildReprojection(
-			currentViewPosition
-		);
-		ReflectionTemporalResult temporalReflection = ResolveReflectionTemporal(
-			filteredReflection.rgb,
-			filteredReflection.a,
-			currentAvailable,
-			material.reflectionType,
-			material.perceptualRoughness,
-			material.worldNormal,
-			currentViewPosition,
-			reflectionReprojection,
-			temporalLowerBound,
-			temporalUpperBound
-		);
-		filteredReflection = vec4(temporalReflection.color, temporalReflection.confidence);
-		gl_FragData[1] = temporalReflection.packedHistory;
+		// Temporal accumulation exists to converge the rough class's sparse
+		// screen rays.  With the rough class off every eligible material is
+		// smooth, FilterMaterialReflection already returned the staged signal
+		// untouched, and the resolve below would blend against a history that is
+		// never written - a reprojection, four history taps, an octahedral pack
+		// and a full-resolution RGBA32F write per frame for a pass-through.
+		// Compile the whole thing out.
+		#if FOXY_MATERIAL_REFLECTION_ROUGH_ACTIVE == 1
+			float currentAvailable = step(0.01, filteredReflection.a);
+			ReflectionReprojection reflectionReprojection = ReflectionBuildReprojection(
+				currentViewPosition
+			);
+			ReflectionTemporalResult temporalReflection = ResolveReflectionTemporal(
+				filteredReflection.rgb,
+				filteredReflection.a,
+				currentAvailable,
+				material.reflectionType,
+				material.perceptualRoughness,
+				material.worldNormal,
+				currentViewPosition,
+				reflectionReprojection,
+				temporalLowerBound,
+				temporalUpperBound
+			);
+			filteredReflection = vec4(temporalReflection.color, temporalReflection.confidence);
+			gl_FragData[1] = temporalReflection.packedHistory;
+		#endif
 		vec3 sceneColor = max(DecodeSceneColor(staging.rgb), vec3(0.0));
 		vec3 combined = ApplyMaterialReflection(sceneColor, viewUv, renderUv, packedSurface, filteredReflection);
 		gl_FragData[0] = vec4(EncodeSceneColor(combined), staging.a);

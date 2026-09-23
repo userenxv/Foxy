@@ -1,6 +1,37 @@
 #ifndef FOXY_SETTINGS_GLSL
 #define FOXY_SETTINGS_GLSL
 
+// Execution paths only: sampling, precision and visual settings are unchanged.
+#define FOXY_FRAME_CELESTIAL_CACHE 1 // [0 1]
+#if FOXY_FRAME_CELESTIAL_CACHE == 1 && !defined(COLORWHEEL)
+#define FOXY_FRAME_CELESTIAL_ACTIVE 1
+#else
+#define FOXY_FRAME_CELESTIAL_ACTIVE 0
+#endif
+#define FOXY_VOLUME_RESOLVE_TILED 1 // [0 1]
+#define FOXY_TAA_STREAM_NEIGHBORHOOD 1 // [0 1]
+#define FOXY_CLOUD_RAY_CONTEXT 1 // [0 1]
+#define FOXY_SEMANTIC_TEXTURE_READS 1 // [0 1]
+#define FOXY_WATER_CLASSIFY_FIRST 1 // [0 1]
+#define FOXY_SINGLE_LIGHT_BRDF 1 // [0 1]
+#define FOXY_FRAME_WEATHER_CACHE 1 // [0 1]
+#define FOXY_CLOUD_DENSITY_BOUND 1 // [0 1]
+#define FOXY_CLOUD_DEFER_CURRENT_DECODE 1 // [0 1]
+#define FOXY_WATER_TRANSMISSION_SPECIALIZE 1 // [0 1]
+#define FOXY_SHADOW_PCF_SPECIALIZE 1 // [0 1]
+
+
+#if !defined(FOXY_EXTERNAL_PIPELINE_BINDINGS)
+uniform float frameTimeCounter;
+uniform int worldTime;
+uniform int worldDay;
+#define FOXY_WORLD_TICK worldTime
+#define FOXY_WORLD_DAY worldDay
+#else
+#define FOXY_WORLD_TICK 0
+#define FOXY_WORLD_DAY 0
+#endif
+
 #if defined(DISTANT_HORIZONS) || defined(LOD_MOD_ACTIVE) || defined(VOXY)
 #define FOXY_DH_ACTIVE 1
 #else
@@ -18,13 +49,17 @@
 #define FOXY_WATER_SSR_NORMAL_STABILIZATION 1
 #define FOXY_WATER_SSR_TEMPORAL_STABILIZATION 1
 
-#define FOXY_EXPOSURE 1.0 // [0.25 0.35 0.50 0.65 0.70 0.80 1.0 1.15 1.30 1.50 1.75 2.0 2.40 2.80 3.20]
+#define FOXY_EXPOSURE 1.15 // [0.25 0.35 0.50 0.65 0.70 0.80 1.0 1.15 1.30 1.50 1.75 2.0 2.40 2.80 3.20]
 #define FOXY_AUTO_EXPOSURE 1.0 // [0.0 0.25 0.40 0.55 0.70 0.85 1.0]
 #define FOXY_AUTO_EXPOSURE_DARK_LIMIT 2.0 // [2.0 3.0 4.0 6.0 8.0 12.0 16.0 24.0 32.0 48.0 64.0]
-#define FOXY_POST_EXPOSURE_BRIGHTNESS 1.0 // [0.25 0.35 0.50 0.65 0.80 1.0 1.15 1.30 1.50 1.75 2.0 2.40 2.80 3.20 4.0]
-#define FOXY_SUN_INTENSITY 1.15 // [0.0 0.25 0.50 0.75 1.0 1.15 1.25 1.50 2.0]
+#define FOXY_AUTO_EXPOSURE_BRIGHT_LIMIT 8.0 // [4.0 5.0 6.0 7.0 8.0 9.0 10.0 11.0 12.0 13.0 14.0 15.0 16.0]
+#define FOXY_POST_EXPOSURE_BRIGHTNESS 1.15 // [0.25 0.35 0.50 0.65 0.80 1.0 1.15 1.30 1.50 1.75 2.0 2.40 2.80 3.20 4.0]
+#define FOXY_SUN_INTENSITY 1.50 // [0.0 0.25 0.50 0.75 1.0 1.15 1.25 1.50 2.0]
 #define FOXY_MOON_INTENSITY 0.12 // [0.0 0.05 0.08 0.12 0.18 0.25 0.35 0.50]
 #define FOXY_AMBIENT_INTENSITY 0.65 // [0.10 0.20 0.35 0.50 0.65 0.80 1.0 1.25]
+#define FOXY_HANDHELD_LIGHT 1 // [0 1]
+#define FOXY_HANDHELD_LIGHT_RANGE 10.0 // [4.0 6.0 8.0 10.0 12.0 16.0 20.0 24.0]
+#define FOXY_HANDHELD_LIGHT_STRENGTH 1.0 // [0.25 0.50 0.75 1.0 1.25 1.50 2.0]
 #define FOXY_SKY_AMBIENT_NEUTRALITY 0.70 // [0.0 0.20 0.35 0.50 0.60 0.70 0.80 0.90 1.0]
 #define FOXY_SKY_AMBIENT_LIFT 1.15 // [0.80 0.90 1.0 1.05 1.10 1.15 1.20 1.30 1.40 1.50]
 #define FOXY_PBR 1 // [0 1]
@@ -43,12 +78,41 @@
 #define FOXY_PBR_SSS_INTENSITY 1.0 // [0.0 0.15 0.30 0.50 0.70 0.90 1.0 1.10 1.35 1.60]
 #define FOXY_PBR_SSS_ALPHA_NEIGHBORS 0 // [0 1]
 #define FOXY_PBR_SSS_SHEEN 1 // [0 1]
+#define FOXY_LEAF_SOFT_LIGHT 1 // [0 1]
+#define FOXY_LEAF_SOFT_LIGHT_STRENGTH 1.0 // [0.50 0.75 1.0 1.35 1.75 2.0 2.5 3.0 3.5 4.0 5.0 6.0]
+#define FOXY_LEAF_SOFT_LIGHT_WRAP 0.70 // [0.25 0.40 0.55 0.70 0.85 1.0]
+// One switch for everything that lets light pass through thin vegetation.  It
+// gates the parameters instead of the shader branch, so turning it off keeps
+// the tuned values intact for when it is switched back on.
+#define FOXY_LEAF_TRANSMISSION 1 // [0 1]
+// Derived: what the shader actually consumes.  Kept separate from the values
+// above so the switches stay non-destructive.
+#define FOXY_LEAF_TRANSMISSION_ENABLED FOXY_LEAF_TRANSMISSION
+#define FOXY_PBR_SSS_INTENSITY_ACTIVE ((FOXY_LEAF_TRANSMISSION) == 1 ? (FOXY_PBR_SSS_INTENSITY) : 0.0)
+// This flag is also consumed by #if; keep it an integer preprocessor value.
+#if FOXY_LEAF_TRANSMISSION == 1
+#define FOXY_PBR_SSS_SHEEN_ACTIVE FOXY_PBR_SSS_SHEEN
+#else
+#define FOXY_PBR_SSS_SHEEN_ACTIVE 0
+#endif
+#define FOXY_LEAF_SOFT_LIGHT_STRENGTH_ACTIVE ((FOXY_LEAF_TRANSMISSION) == 1 ? (FOXY_LEAF_SOFT_LIGHT_STRENGTH) : 0.0)
+#define FOXY_LEAF_SOFT_LIGHT_WRAP_ACTIVE ((FOXY_LEAF_TRANSMISSION) == 1 ? (FOXY_LEAF_SOFT_LIGHT_WRAP) : 0.0)
 #define FOXY_PBR_PARALLAX 0 // [0 1]
 #define FOXY_PBR_PARALLAX_DEPTH 0.25 // [0.05 0.10 0.15 0.20 0.25 0.30 0.40 0.50]
 #define FOXY_PBR_PARALLAX_STEPS 16 // [8 12 16 20 24 32 40]
 #define FOXY_PBR_PARALLAX_DISTANCE 24.0 // [8.0 12.0 16.0 24.0 32.0 48.0 64.0]
+// Material reflection is a single switch.  It keeps its plain `1 // [0 1]` form
+// because Iris reads the value range from that comment, and the whole
+// FOXY_PT_GBUFFER_ACTIVE / RENDERTARGETS chain is keyed off this macro, so it must
+// stay a literal and never become an alias.
+//
+// One switch drives both reflection flavours:
+//   ON  -> smooth surfaces (glass, ice, polished stone, metal, water) take the
+//          screen-space trace, and surfaces above the smoothness threshold take
+//          the rough path with its spatial filter chain.
+//   OFF -> no material reflection.  Glass and rain puddles fall back to the
+//          lightweight reflection carried inside their own shading passes.
 #define FOXY_MATERIAL_REFLECTIONS 0 // [0 1]
-
 #define FOXY_MATERIAL_REFLECTION_HIGH_QUALITY 0 // [0 1]
 #define FOXY_MATERIAL_REFLECTION_GLOBAL 0 // [0 1]
 #define FOXY_MATERIAL_REFLECTION_OFFSCREEN 1 // [0 1]
@@ -56,7 +120,20 @@
 #define FOXY_MATERIAL_REFLECTION_STEPS 12 // [8 10 12 16 20 24 28]
 #define FOXY_MATERIAL_REFLECTION_STRENGTH 1.0 // [0.25 0.50 0.75 1.0 1.25 1.50]
 #define FOXY_MATERIAL_REFLECTION_ROUGHNESS_CUTOFF 0.65 // [0.35 0.45 0.55 0.65 0.72 0.80 0.90]
+// Perceptual roughness that divides the crisp reflection from the blurred one.
+// Both classes live under the material reflection switch above, so this only
+// decides which side a surface falls on.
 #define FOXY_MATERIAL_REFLECTION_SMOOTH_ROUGHNESS 0.08 // [0.04 0.06 0.08 0.10 0.14 0.18]
+// The rough class renders whenever material reflection is on, and is compiled out
+// with it.  Compile-time so the filter pass can drop the rough-only half of its
+// work instead of branching on it per pixel.
+#define FOXY_MATERIAL_REFLECTION_ROUGH_ACTIVE ((FOXY_MATERIAL_REFLECTIONS) == 1)
+#define FOXY_MATERIAL_REFLECTION_SMOOTH_ROUGHNESS_ACTIVE FOXY_MATERIAL_REFLECTION_SMOOTH_ROUGHNESS
+// Eligibility cutoff.  With the switch off it collapses to 0 so only metals and
+// perfectly smooth dielectrics would still qualify.
+#define FOXY_MATERIAL_REFLECTION_ROUGHNESS_CUTOFF_ACTIVE \
+	((FOXY_MATERIAL_REFLECTIONS) == 1 ? (FOXY_MATERIAL_REFLECTION_ROUGHNESS_CUTOFF) : 0.0)
+
 
 #define FOXY_MATERIAL_REFLECTION_MIN_SMOOTHNESS 0.34
 #define FOXY_MATERIAL_REFLECTION_ENERGY_THRESHOLD 0.01
@@ -64,7 +141,7 @@
 #define FOXY_MATERIAL_REFLECTION_GLOBAL_MIN_ENERGY 0.025
 #define FOXY_ATMOSPHERE_STYLE 2 // [1 2 3]
 #define FOXY_SUN_ANGULAR_RADIUS 0.0218 // [0.0120 0.0160 0.0180 0.0218 0.0240 0.0280 0.0320]
-#define FOXY_SUN_DISK_BRIGHTNESS 520.0 // [180.0 260.0 360.0 520.0 700.0 900.0 1200.0]
+#define FOXY_SUN_DISK_BRIGHTNESS 900.0 // [180.0 260.0 360.0 520.0 700.0 900.0 1200.0]
 #define FOXY_SKY_SCATTER_EXPOSURE 0.15 // [0.05 0.10 0.15 0.25 0.35 0.45 0.55 0.65 0.75 0.82 0.88 0.95 1.0 1.10 1.25 1.40]
 #define FOXY_SKY_HORIZON_WHITE 0.15 // [0.0 0.15 0.30 0.42 0.50 0.58 0.70 0.85 1.0 1.20 1.50]
 #define FOXY_SKY_HORIZON_WHITE_RANGE 0.72 // [0.20 0.35 0.50 0.62 0.72 0.85 1.0 1.20 1.50]
@@ -75,10 +152,87 @@
 #define FOXY_SKY_SOLAR_SUNSET_HORIZON_OFFSET 400.0 // [-6000.0 -4800.0 -3600.0 -2400.0 -1600.0 -1200.0 -800.0 -400.0 0.0 400.0 800.0 1200.0 1600.0 2400.0 3600.0 4800.0 6000.0]
 #define FOXY_SKY_SOLAR_SUNRISE_HORIZON_OFFSET 0.0 // [-6000.0 -4800.0 -3600.0 -2400.0 -1600.0 -1200.0 -800.0 -400.0 0.0 400.0 800.0 1200.0 1600.0 2400.0 3600.0 4800.0 6000.0]
 #define FOXY_SKY_TWILIGHT_SCALE 1.0 // [0.70 0.80 0.90 1.0 1.10 1.20 1.35 1.50]
+#define FOXY_RAIN_DIRECT_LIGHT_FLOOR 0.55 // [0.0 0.15 0.25 0.35 0.45 0.55 0.65 0.75 0.85 1.0]
+#define FOXY_RAIN_AEROSOL_DENSITY 2.24
+// Particle opacity is a scale, not the final value: the layer also normalizes by
+// how much screen each particle covers.
+#define FOXY_WEATHER_OPACITY 0.24 // [0.0 0.06 0.12 0.18 0.24 0.32 0.44 0.60 0.80 1.0]
+// Range in blocks over which a near particle fades out.  A rain quad is a long
+// vertical billboard; one a metre from the eye covers most of the screen and the
+// layer saturates into a solid sheet.  Fading the nearest particles keeps the
+// layer readable at steep look-down angles without a hard cutoff.
+#define FOXY_WEATHER_NEAR_FADE 7.0 // [0.0 2.0 4.0 7.0 11.0 16.0 24.0]
+// Weight of the splash vanilla raises where rain lands.  Its texture is opaque where
+// the falling streak is mostly empty, so it needs its own weight rather than the
+// streak's near fade.
+#define FOXY_WEATHER_SPLASH_OPACITY 0.50 // [0.0 0.15 0.30 0.50 0.70 1.0]
+// Luminance floor for the particle tint.  Rain and snow are strong forward
+// scatterers, so real streaks stay readable against a dark sky instead of being
+// crushed to the background.  This blends the tint toward a version of itself
+// with this much luminance, which keeps the hue and only lifts the energy.
+#define FOXY_WEATHER_SCATTER_FLOOR 0.20 // [0.0 0.08 0.14 0.20 0.28 0.38 0.50 0.65]
+// Horizontal shear applied to falling particles, in blocks of drift per block of
+// fall.  Gives rain a wind-driven lean so it does not read as a flat curtain.
+#define FOXY_WEATHER_SLANT 0.22 // [0.0 0.06 0.12 0.22 0.35 0.50]
+// How quickly the wind lean changes with position, which stops every streak from
+// leaning by the exact same amount.
+#define FOXY_WEATHER_SLANT_WAVE 0.55 // [0.0 0.25 0.40 0.55 0.75 1.0]
+#define FOXY_SKY_BELOW_HORIZON_LIFT 0.020 // [0.000 0.005 0.010 0.015 0.020 0.026 0.033 0.042 0.055]
+#define FOXY_SKY_BELOW_HORIZON_RANGE 0.120 // [0.030 0.055 0.080 0.100 0.120 0.150 0.190 0.240 0.320 0.450]
 #define FOXY_SKY_VANILLA_CELESTIALS 0 // [0 1]
 #define FOXY_SKY_VANILLA_MOON 1 // [0 1]
 #define FOXY_NASA_GALAXY 1 // [0 1]
 #define FOXY_NASA_GALAXY_INTENSITY 0.25 // [0.0 0.10 0.16 0.20 0.25 0.32 0.40 0.50 0.65 0.80 1.0]
+#define FOXY_BLACKHOLE_SKY 1 // [0 1]
+#define FOXY_BLACKHOLE_SUN 0 // [0 1]
+#define FOXY_BLACKHOLE_MOON 0 // [0 1]
+#define FOXY_BLACKHOLE_SUN_DIST 20.0 // [5.0 8.0 10.0 12.0 15.0 18.0 20.0 25.0 30.0 40.0 50.0 75.0 100.0]
+#define FOXY_BLACKHOLE_SUN_PITCH 5.0 // [-60.0 -45.0 -30.0 -20.0 -10.0 0.0 5.0 10.0 15.0 20.0 30.0 45.0 60.0 75.0 89.0]
+#define FOXY_BLACKHOLE_SUN_YAW 0.35 // [0.0 0.3 0.5 0.8 1.0 1.3 1.6 2.0 2.4 2.8 3.14 3.6 4.2 5.0 6.283]
+#define FOXY_BLACKHOLE_SUN_TILT 40.0 // [0.0 15.0 30.0 45.0 60.0 75.0 90.0 105.0 120.0 135.0 150.0 165.0 180.0 195.0 210.0 225.0 240.0 255.0 270.0 285.0 300.0 315.0 330.0 345.0]
+#define FOXY_BLACKHOLE_SUN_TEMP 2000.0 // [1000.0 1200.0 1400.0 1600.0 1800.0 2000.0 2500.0 3000.0 3700.0 4600.0 5800.0 7500.0 10000.0 14000.0 20000.0]
+#define FOXY_BLACKHOLE_SUN_BRIGHTNESS 20.0 // [0.25 0.5 0.75 1.0 1.5 2.0 3.0 5.0 8.0 12.0 20.0 30.0 50.0 80.0 120.0]
+#define FOXY_BLACKHOLE_MOON_DIST 20.0 // [5.0 8.0 10.0 12.0 15.0 18.0 20.0 25.0 30.0 40.0 50.0 75.0 100.0]
+#define FOXY_BLACKHOLE_MOON_PITCH 5.0 // [-60.0 -45.0 -30.0 -20.0 -10.0 0.0 5.0 10.0 15.0 20.0 30.0 45.0 60.0 75.0 89.0]
+#define FOXY_BLACKHOLE_MOON_YAW 0.35 // [0.0 0.3 0.5 0.8 1.0 1.3 1.6 2.0 2.4 2.8 3.14 3.6 4.2 5.0 6.283]
+#define FOXY_BLACKHOLE_MOON_TILT 40.0 // [0.0 15.0 30.0 45.0 60.0 75.0 90.0 105.0 120.0 135.0 150.0 165.0 180.0 195.0 210.0 225.0 240.0 255.0 270.0 285.0 300.0 315.0 330.0 345.0]
+#define FOXY_BLACKHOLE_MOON_TEMP 2000.0 // [1000.0 1200.0 1400.0 1600.0 1800.0 2000.0 2500.0 3000.0 3700.0 4600.0 5800.0 7500.0 10000.0 14000.0 20000.0]
+#define FOXY_BLACKHOLE_MOON_BRIGHTNESS 1.0 // [0.25 0.5 0.75 1.0 1.5 2.0 3.0 5.0 8.0 12.0 20.0 30.0 50.0 80.0 120.0]
+#define FOXY_BLACKHOLE_GALAXY_EXPOSURE 0.10 // [0.0 0.01 0.02 0.03 0.04 0.05 0.06 0.07 0.08 0.09 0.10 0.12 0.14 0.16 0.18 0.20 0.25 0.30 0.35 0.40 0.50 0.60 0.70 0.80 0.90 1.0]
+#define FOXY_BLACKHOLE_REFLECTION_BRIGHTNESS 8.0 // [1.0 2.0 3.0 4.0 6.0 8.0 12.0 16.0 24.0 32.0 48.0 64.0 96.0 128.0]
+#define FOXY_BLACKHOLE_SPIN 0.0 // [0.0 0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40 0.45 0.50 0.55 0.60 0.65 0.70 0.75 0.80 0.85 0.90 0.93 0.95 0.97 0.98 0.99 0.998]
+#define FOXY_BLACKHOLE_CAM_DIST 5.62 // [2.0 2.5 3.0 3.5 4.0 4.5 5.0 5.5 5.62 6.0 6.5 7.0 7.5 8.0 8.5 9.0 9.5 10.0 11.0 12.0 13.0 14.0 15.0 16.0 18.0 20.0 24.0 28.0 32.0 36.0 40.0]
+#define FOXY_BLACKHOLE_CAM_PITCH 1.3 // [-89.0 -80.0 -70.0 -60.0 -50.0 -40.0 -30.0 -25.0 -20.0 -15.0 -10.0 -8.0 -6.0 -4.0 -2.0 -1.3 -1.0 -0.5 0.0 0.5 1.0 1.3 2.0 4.0 6.0 8.0 10.0 15.0 20.0 25.0 30.0 40.0 50.0 60.0 70.0 80.0 89.0]
+#define FOXY_BLACKHOLE_CAM_YAW 0.35 // [0.0 0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40 0.45 0.50 0.60 0.70 0.80 0.90 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0 2.2 2.4 2.6 2.8 3.0 3.2 3.4 3.6 3.8 4.0 4.4 4.8 5.2 5.6 6.0 6.283]
+#define FOXY_BLACKHOLE_TILT 0.0 // [0.0 15.0 30.0 45.0 60.0 75.0 90.0 105.0 120.0 135.0 150.0 165.0 180.0 195.0 210.0 225.0 240.0 255.0 270.0 285.0 300.0 315.0 330.0 345.0]
+#define FOXY_BLACKHOLE_FOLLOW 0 // [0 1]
+#define FOXY_BLACKHOLE_FOLLOW_SCALE 1000.0 // [10.0 20.0 50.0 100.0 200.0 300.0 500.0 750.0 1000.0 1500.0 2000.0 3000.0 5000.0 7500.0 10000.0 15000.0 20000.0 30000.0 50000.0 75000.0 100000.0]
+#define FOXY_BLACKHOLE_AUTO_ROTATE 0.075 // [0.0 0.01 0.02 0.03 0.04 0.05 0.06 0.075 0.08 0.09 0.10 0.12 0.14 0.16 0.18 0.20 0.24 0.28 0.32 0.35]
+
+#define FOXY_BLACKHOLE_ORBIT 0 // [0 1]
+#define FOXY_BLACKHOLE_ORBIT_SPEED 0.075 // [0.0 0.01 0.02 0.03 0.04 0.05 0.06 0.075 0.08 0.09 0.10 0.12 0.14 0.16 0.18 0.20 0.24 0.28 0.32 0.35 0.40]
+
+#define FOXY_BLACKHOLE_ORBIT_NEAR 1.05 // [0.0 0.25 0.50 0.75 1.0 1.05 1.2 1.5 2.0 2.5 3.0 3.5 4.0 5.0 6.0 8.0 10.0 12.0]
+#define FOXY_BLACKHOLE_ORBIT_FAR 5.62 // [2.0 2.5 3.0 3.5 4.0 4.5 5.0 5.5 5.62 6.0 6.5 7.0 7.5 8.0 8.5 9.0 9.5 10.0 11.0 12.0 13.0 14.0 15.0 16.0 18.0 20.0 24.0 28.0 32.0 36.0 40.0]
+
+#define FOXY_BLACKHOLE_TETRAD_CAMERA 1 // [0 1]
+#define FOXY_BLACKHOLE_DISK_OPACITY 1.0 // [0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40 0.45 0.50 0.60 0.65 0.70 0.80 0.90 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0]
+#define FOXY_BLACKHOLE_DOPPLER 1.0 // [0.0 0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40 0.45 0.50 0.55 0.60 0.65 0.70 0.75 0.80 0.85 0.90 0.95 1.0]
+#define FOXY_BLACKHOLE_DOPPLER_EXP 4.0 // [0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0 4.5 5.0 5.5 6.0 6.5 7.0 7.5 8.0 8.5 9.0 9.5 10.0 10.5 11.0 11.5 12.0 12.5 13.0 13.5 14.0 14.5 15.0 15.5 16.0 17.0 18.0 19.0 20.0 22.0 24.0]
+#define FOXY_BLACKHOLE_DISK_EMIT 0.30 // [0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40 0.45 0.50 0.60 0.70 0.80 0.90 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0 2.2 2.5 3.0]
+#define FOXY_BLACKHOLE_DISK_ABSORB 2.0 // [0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0 4.5 5.0 5.5 6.0 6.5 7.0 7.5 8.0 8.5 9.0 9.5 10.0 11.0 12.0]
+#define FOXY_BLACKHOLE_DISK_TEMP 20000.0 // [1000.0 1100.0 1200.0 1300.0 1400.0 1500.0 1600.0 1700.0 1800.0 1900.0 2000.0 2100.0 2500.0 3000.0 3700.0 4600.0 5800.0 7500.0 10000.0 14000.0 20000.0 26000.0 32000.0 40000.0]
+#define FOXY_BLACKHOLE_TEMP_CONTRAST 0.8 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.75 2.0]
+#define FOXY_BLACKHOLE_DISK_OUTER 16.0 // [2.0 2.5 3.0 3.5 4.0 4.5 5.0 5.5 6.0 7.0 8.0 9.0 10.0 11.0 12.0 13.0 14.0 15.0 16.0 17.0 18.0 19.0 20.0 22.0 24.0 26.0 28.0]
+#define FOXY_BLACKHOLE_DISK_FLARE 0.010 // [0.002 0.004 0.006 0.008 0.010 0.012 0.014 0.016 0.018 0.020 0.025 0.030 0.035 0.040 0.045 0.050 0.060 0.070 0.080 0.090 0.100]
+#define FOXY_BLACKHOLE_TURB 1 // [0 1]
+#define FOXY_BLACKHOLE_TURB_SCALE 1.0 // [0.5 0.75 1.0 1.25 1.5 2.0]
+#define FOXY_BLACKHOLE_EROSION 1 // [0 1]
+#define FOXY_BLACKHOLE_FINE_STEP 1 // [0 1]
+#define FOXY_BLACKHOLE_STEPS 180 // [60 80 100 120 140 160 180 200 220 240 260 280 300 320 360 400 440 480 520 560 600 640 700 760 820 880 940 1024]
+#define FOXY_BLACKHOLE_ESCAPE 60.0 // [20.0 25.0 30.0 35.0 40.0 45.0 50.0 55.0 60.0 65.0 70.0 75.0 80.0 90.0 100.0 110.0 120.0 135.0 150.0 165.0 180.0 200.0 220.0 240.0]
+#define FOXY_END_LIGHT_DIR vec3(0.7399422, 0.2588190, 0.6208789)
+
 #define FOXY_FOG_DENSITY 0.30 // [0.0 0.15 0.30 0.45 0.60 0.75 1.0 1.25 1.50 2.0]
 #define FOXY_FOG_BLUE_SHIFT 1.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 1.75 2.0 2.50 3.0]
 #define FOXY_FOG_START 0.50 // [0.15 0.25 0.35 0.50 0.65 0.78 0.88]
@@ -86,16 +240,17 @@
 #define FOXY_WORLD_FOG_HEIGHT 72.0 // [0.0 16.0 32.0 48.0 56.0 64.0 72.0 80.0 96.0 112.0 128.0 160.0 192.0 256.0 320.0]
 #define FOXY_WORLD_FOG_FALLOFF 96.0 // [32.0 48.0 72.0 96.0 128.0 192.0 256.0]
 #define FOXY_AIR_AEROSOL_ENABLED 1 // [0 1]
-#define FOXY_AIR_AEROSOL_DENSITY 0.16 // [0.0 0.04 0.08 0.12 0.16 0.24 0.34 0.46 0.62 0.82 1.0 1.25 1.50 2.0]
-#define FOXY_AIR_AEROSOL_FADE_START 72.0 // [-64.0 -32.0 0.0 16.0 32.0 48.0 56.0 64.0 72.0 80.0 96.0 112.0 128.0 160.0 192.0 224.0 256.0 320.0 384.0 512.0]
-#define FOXY_AIR_AEROSOL_FADE_END 384.0 // [0.0 16.0 32.0 48.0 64.0 72.0 80.0 96.0 112.0 128.0 144.0 160.0 192.0 224.0 256.0 280.0 320.0 384.0 448.0 512.0 640.0 768.0 896.0 1024.0 1088.0 1280.0 1536.0 2048.0]
+#define FOXY_AIR_AEROSOL_DENSITY 0.34 // [0.0 0.04 0.08 0.12 0.16 0.24 0.34 0.46 0.62 0.82 1.0 1.25 1.50 2.0]
+#define FOXY_AIR_AEROSOL_FADE_START 64.0 // [-64.0 -32.0 0.0 16.0 32.0 48.0 56.0 64.0 72.0 80.0 96.0 112.0 128.0 160.0 192.0 224.0 256.0 320.0 384.0 512.0]
+#define FOXY_AIR_AEROSOL_FADE_END 144.0 // [0.0 16.0 32.0 48.0 64.0 72.0 80.0 96.0 112.0 128.0 144.0 160.0 192.0 224.0 256.0 280.0 320.0 384.0 448.0 512.0 640.0 768.0 896.0 1024.0 1088.0 1280.0 1536.0 2048.0]
 #define FOXY_AIR_MOLECULAR_ENABLED 1 // [0 1]
-#define FOXY_AIR_MOLECULAR_DENSITY 0.16 // [0.0 0.04 0.08 0.12 0.16 0.24 0.34 0.46 0.62 0.82 1.0 1.25 1.50 2.0]
+#define FOXY_AIR_MOLECULAR_DENSITY 0.24 // [0.0 0.04 0.08 0.12 0.16 0.24 0.34 0.46 0.62 0.82 1.0 1.25 1.50 2.0]
 #define FOXY_AIR_MOLECULAR_FADE_START 72.0 // [-64.0 -32.0 0.0 16.0 32.0 48.0 56.0 64.0 72.0 80.0 96.0 112.0 128.0 160.0 192.0 224.0 256.0 320.0 384.0 512.0]
 #define FOXY_AIR_MOLECULAR_FADE_END 1088.0 // [0.0 16.0 32.0 48.0 64.0 72.0 80.0 96.0 112.0 128.0 144.0 160.0 192.0 224.0 256.0 280.0 320.0 384.0 448.0 512.0 640.0 768.0 896.0 1024.0 1088.0 1280.0 1536.0 2048.0]
-#define FOXY_AIR_DENSITY_NOON 1.0 // [0.0 0.25 0.50 0.75 0.85 1.0 1.15 1.25 1.50 1.75 2.0]
-#define FOXY_AIR_DENSITY_TWILIGHT 1.0 // [0.0 0.25 0.50 0.75 0.85 1.0 1.15 1.25 1.50 1.75 2.0]
-#define FOXY_AIR_DENSITY_NIGHT 1.0 // [0.0 0.25 0.50 0.75 0.85 1.0 1.15 1.25 1.50 1.75 2.0]
+#define FOXY_AIR_DENSITY_NOON 0.0 // [0.0 0.25 0.50 0.75 0.85 1.0 1.15 1.25 1.50 1.75 2.0]
+#define FOXY_AIR_DENSITY_DAYLIGHT 0.60 // [0.0 0.25 0.50 0.60 0.75 0.85 1.0 1.15 1.25 1.50 1.75 2.0]
+#define FOXY_AIR_DENSITY_TWILIGHT 1.25 // [0.0 0.25 0.50 0.75 0.85 1.0 1.15 1.25 1.50 1.75 2.0]
+#define FOXY_AIR_DENSITY_NIGHT 1.25 // [0.0 0.25 0.50 0.75 0.85 1.0 1.15 1.25 1.50 1.75 2.0]
 #define FOXY_AIR_TEMPERATURE_TWILIGHT 6500 // [2500 3000 3500 4000 4500 5000 5500 6000 6500 7000 7500 8000 9000 10000 12000]
 #define FOXY_AIR_TEMPERATURE_NOON 6500 // [2500 3000 3500 4000 4500 5000 5500 6000 6500 7000 7500 8000 9000 10000 12000]
 #define FOXY_VOLUMETRIC_LIGHT 1 // [0 1]
@@ -103,10 +258,10 @@
 #define FOXY_VL_QUALITY 1 // [0 1 2]
 #define FOXY_VL_STRENGTH 1.20 // [0.0 0.15 0.25 0.35 0.42 0.55 0.70 0.90 1.20 1.35]
 #define FOXY_VL_RESOLUTION 0.50 // [0.10 0.15 0.20 0.25 0.30 0.40 0.50 0.60 0.70 0.80 0.90 1.0]
-#define FOXY_VL_DISTANCE 320.0
+#define FOXY_VL_DISTANCE 320.0 // [64.0 96.0 128.0 160.0 192.0 256.0 320.0 448.0 640.0]
 #define FOXY_VL_ANISOTROPY 0.62 // [0.0 0.25 0.45 0.55 0.62 0.72 0.82]
 #define FOXY_VL_SHADOWING 1.0 // [0.0 0.25 0.50 0.75 0.88 1.0]
-#define FOXY_VL_SHADOW_DARKEN 2.0
+#define FOXY_VL_SHADOW_DARKEN 2.0 // [0.0 0.5 1.0 1.5 2.0 2.5 3.0 4.0]
 #define FOXY_VL_CLUMPINESS 0.58 // [0.0 0.15 0.28 0.42 0.58 0.68 0.75 1.0]
 #define FOXY_VOLUME_COMPACT_CBR 0
 #define FOXY_COLOR_SATURATION 1.0 // [0.70 0.80 0.90 1.0 1.08 1.16 1.25]
@@ -114,14 +269,41 @@
 #define FOXY_COLOR_HIGHLIGHT_CURVE 0.18 // [-0.30 -0.20 -0.10 0.0 0.08 0.12 0.18 0.25 0.35]
 #define FOXY_WHITE_BALANCE 6500 // [4000 4500 5000 5500 6000 6500 7000 7500 8000 8500 9000]
 #define FOXY_COLOR_GRADING 0.35 // [0.0 0.15 0.25 0.35 0.50 0.65 0.80 1.0]
+#define FOXY_TONEMAP_TINT 0.0 // [-0.20 -0.12 -0.06 0.0 0.06 0.12 0.20]
+#define FOXY_TONEMAP_SATURATION 1.0 // [0.0 0.50 0.70 0.85 0.95 1.0 1.05 1.15 1.30 1.50]
+#define FOXY_TONEMAP_CONTRAST 1.0 // [0.70 0.80 0.90 0.95 1.0 1.05 1.10 1.20 1.30]
+#define FOXY_TONEMAP_GAMMA 1.0 // [0.80 0.88 0.94 1.0 1.06 1.12 1.20]
+#define FOXY_PURKINJE_ENABLED 1 // [0 1]
 #define FOXY_PURKINJE_SHIFT 0.30 // [0.0 0.15 0.30 0.45 0.60 0.80 1.0]
 #define FOXY_VIGNETTE 0.08 // [0.0 0.04 0.08 0.12 0.16 0.22 0.30]
-#define FOXY_BLOOM_STRENGTH 15 // [0 5 10 15 20 25 30 40 50 60 75 100]
+#define FOXY_BLOOM_STRENGTH 40 // [0 5 10 15 20 25 30 40 50 60 75 100 125 150 175 200]
 #define FOXY_BLOOM_THRESHOLD 0.35 // [0.20 0.28 0.35 0.45 0.60 0.75 0.90 1.10 1.35 1.70]
 #define FOXY_BLOOM_RADIUS 0.85 // [0.25 0.40 0.55 0.65 0.80 0.85 1.0 1.25 1.50]
 #define FOXY_BLOOM_FOG 0.25 // [0.0 0.10 0.20 0.25 0.35 0.50 0.75 1.0]
 #define FOXY_MOTION_BLUR 0.45 // [0.0 0.15 0.30 0.45 0.60 0.80 1.0 1.25 1.50 2.0 2.50 3.0]
-#define FOXY_TONEMAPPER 2 // [0 1 2 3 4 5]
+#define FOXY_TONEMAPPER 1 // [1 2 6]
+#define FOXY_AGX_LOOK 2 // [0 1 2]
+#define FOXY_ACES2_PEAK 0 // [0 1 2]
+#define FOXY_ACES2_EXPOSURE 1.00 // [0.75 0.85 0.90 1.0 1.10 1.15 1.30 1.50 1.75 2.0 2.25 2.50 2.80]
+#define FOXY_ACES2_CONTRAST 1.00 // [0.96 1.0 1.02 1.04 1.06 1.08 1.10 1.12]
+#define FOXY_ACES2_CHROMA 1.0 // [0.70 0.80 0.86 0.92 1.0 1.08 1.16]
+#define FOXY_ACES2_CALIBRATION 0 // [0 1 2 3 4]
+#define FOXY_TONEMAP_COMPARE_DEBUG 0 // [0 1]
+
+#define FOXY_INDIRECT_WARMTH 0.0 // [-1.0 -0.75 -0.50 -0.25 0.0 0.25 0.50 0.75 1.0]
+
+vec3 FoxyIndirectColorTemperature(const in vec3 color) {
+	float amount = clamp(FOXY_INDIRECT_WARMTH, -1.0, 1.0);
+	vec3 tint = amount >= 0.0
+		? mix(vec3(1.0), vec3(1.08, 1.02, 0.90), amount)
+		: mix(vec3(1.0), vec3(0.90, 0.98, 1.08), -amount);
+	float sourceLuma = dot(max(color, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
+	vec3 tinted = max(color, vec3(0.0)) * tint;
+	float tintedLuma = dot(tinted, vec3(0.2126, 0.7152, 0.0722));
+	return tinted * (sourceLuma / max(tintedLuma, 1.0e-6));
+}
+
+#define FOXY_ACES2_SCENE_REFERENCE_SCALE 4.0
 #define FOXY_CAS 0 // [0 1]
 #define FOXY_CAS_STRENGTH 0.55 // [0.15 0.30 0.40 0.55 0.70 0.85 1.0]
 #define FOXY_DOF 0 // [0 1]
@@ -134,12 +316,18 @@ const float centerDepthHalflife = 1.0; // [0.1 0.2 0.3 0.5 0.75 1.0 1.5 2.0 3.0 
 #include "/lib/temporal_options.glsl"
 
 #define FOXY_RAY_AO 0
-#define FOXY_RAY_SSGI 1
+#define FOXY_RAY_SSPT 1
 #define FOXY_RAY_IRC 2
 #define FOXY_RAY_VRTGI 3
 #define FOXY_RAY_SSPT_VRTGI 4
 #define FOXY_RAY_IRC_SSPT 5
-#define FOXY_RAY_MODE 0 // [0 1 2 5 3 4]
+#define FOXY_RAY_RSM 6
+#define FOXY_RAY_MODE 0 // [0 6 1 2 5 3 4]
+#if FOXY_RAY_MODE == FOXY_RAY_RSM && !defined(FOXY_DIM_NETHER) && !defined(FOXY_DIM_END)
+	#define FOXY_RSM_ACTIVE 1
+#else
+	#define FOXY_RSM_ACTIVE 0
+#endif
 #if FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
 	#define FOXY_IRC_SSPT_MODE 1
 #else
@@ -152,11 +340,23 @@ const float centerDepthHalflife = 1.0; // [0.1 0.2 0.3 0.5 0.75 1.0 1.5 2.0 3.0 
 #define FOXY_SSPT_DENOISER 1 // [0 1]
 #define FOXY_SSPT_DENOISE_QUALITY 2 // [0 1 2]
 #define FOXY_SSPT_BOUNCE_BRIGHTNESS 8.0 // [0.0 0.25 0.50 0.75 0.90 1.0 1.10 1.25 1.50 1.75 2.0 2.50 3.0 4.0 5.0 6.0 8.0 10.0 12.0 15.0]
-#define FOXY_SSPT_DENOISE_STRENGTH 1.25 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 1.75 2.0]
+#define FOXY_SSPT_DENOISE_STRENGTH 2.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 1.75 2.0 2.25 2.50 2.75 3.0]
 #define FOXY_SSPT_MINIMUM_LIGHT 1 // [0 1]
 #define FOXY_SSPT_MINIMUM_LIGHT_STRENGTH 3.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 2.0 2.50 3.0 4.0 5.0 6.0 8.0 10.0 12.0 15.0 20.0 25.0 30.0 40.0 50.0]
 #define FOXY_SSPT_EMISSIVE_FEEDBACK 1 // [0 1]
 #define FOXY_SSPT_EMISSIVE_BRIGHTNESS 1.0 // [0.0 0.25 0.50 0.75 0.90 1.0 1.10 1.25 1.50 1.75 2.0 2.50 3.0]
+#define FOXY_ENTITY_BASE_LIGHT 0 // [0 1]
+
+// Reflective shadow maps: reuse the sun shadow map as a list of secondary light sources and
+// gather over a disk in light space. One diffuse bounce, no voxel grid.
+// Keep the radius small: 1x1 protrusions must occupy enough samples, otherwise hits become
+// sparse events and the bounce breaks up into isolated bright pixels.
+#define FOXY_RSM_SAMPLES 8 // [2 4 6 8 10 12 14 16]
+#define FOXY_RSM_RADIUS 8.0 // [1.0 1.5 2.0 3.0 4.0 6.0 8.0 12.0 16.0]
+#define FOXY_RSM_INTENSITY 2.0 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0 2.1 2.2 2.3 2.4 2.5 2.6 2.7 2.8 2.9 3.0 3.1 3.2 3.3 3.4 3.5 3.6 3.7 3.8 3.9 4.0]
+#define FOXY_RSM_DISTANCE 24.0 // [8.0 12.0 16.0 24.0 32.0 48.0 64.0]
+// Per-pixel rotation of the gather pattern; off only brings back concentric ring banding.
+#define FOXY_RSM_JITTER 1
 
 #define FOXY_VXGI_TRUE_SECONDARY_BOUNCE 1 // [0 1]
 #define FOXY_VRTGI_REALISTIC_MODE 1 // [0 1]
@@ -175,6 +375,8 @@ const float centerDepthHalflife = 1.0; // [0.1 0.2 0.3 0.5 0.75 1.0 1.5 2.0 3.0 
 #define FOXY_IRRADIANCE_CACHE_HISTORY_FRAMES 160 // [32 48 64 80 96 128 160 192 256]
 #if FOXY_RAY_MODE == FOXY_RAY_VRTGI || FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI
 	#define FOXY_RAY_RESOLUTION FOXY_VRTGI_RESOLUTION
+#elif FOXY_RAY_MODE == FOXY_RAY_RSM
+	#define FOXY_RAY_RESOLUTION 0.25
 #else
 	#define FOXY_RAY_RESOLUTION 0.5
 #endif
@@ -221,25 +423,42 @@ const float centerDepthHalflife = 1.0; // [0.1 0.2 0.3 0.5 0.75 1.0 1.5 2.0 3.0 
 #define FOXY_VOXEL_GI_SUN_DIFFUSE_BRIGHTNESS 1.0 // [0.0 0.25 0.50 0.75 0.90 1.0 1.10 1.25 1.50 1.75 2.0]
 #define FOXY_VOXEL_GI_EMITTER_BRIGHTNESS 1.0 // [0.0 0.25 0.50 0.75 0.90 1.0 1.10 1.25 1.50 1.75 2.0 2.50 3.0]
 #define FOXY_VOXEL_GI_SKY_BRIGHTNESS 1.5 // [0.0 0.25 0.50 0.75 0.90 1.0 1.10 1.25 1.50 1.75 2.0]
+#define FOXY_VXGI_BLOCKLIGHT_EMITTER 0 // [0 1]
+#define FOXY_SABLE_SUPPORT 1 // [0 1]
 
-#define FOXY_PRESENTATION_EXPOSURE_MIN 0.00390625
+#if FOXY_RAY_MODE == FOXY_RAY_VRTGI && FOXY_VRTGI_REALISTIC_MODE == 1
+	// Realistic lighting scale lifts the sun (x5) and the sky (x4), so the metered scene
+	// sits higher and auto exposure has to be allowed to pull further down.
+	#define FOXY_PRESENTATION_EXPOSURE_BRIGHT_SCALE 2.5
+#else
+	#define FOXY_PRESENTATION_EXPOSURE_BRIGHT_SCALE 1.0
+#endif
+#define FOXY_PRESENTATION_EXPOSURE_MIN (1.0 / (FOXY_AUTO_EXPOSURE_BRIGHT_LIMIT * FOXY_PRESENTATION_EXPOSURE_BRIGHT_SCALE))
 #define FOXY_PRESENTATION_EXPOSURE_MAX min(max(FOXY_AUTO_EXPOSURE_DARK_LIMIT, 1.0), 64.0)
 #define FOXY_PRESENTATION_EXPOSURE_STATE_MIN 0.0030
 #define FOXY_PRESENTATION_EXPOSURE_STATE_MAX (FOXY_PRESENTATION_EXPOSURE_MAX * 1.125)
 #define FOXY_PRESENTATION_MANUAL_EXPOSURE FOXY_EXPOSURE
 #define FOXY_PRESENTATION_AUTO_WEIGHT FOXY_AUTO_EXPOSURE
 
-#define FOXY_PRESENTATION_BASE_POST_EXPOSURE_CALIBRATION 2.0
+#if FOXY_TONEMAPPER == 6
+	#define FOXY_PRESENTATION_BASE_POST_EXPOSURE_CALIBRATION 1.0
+	#define FOXY_PRESENTATION_POST_EXPOSURE_CALIBRATION 1.0
+#else
+	#define FOXY_PRESENTATION_BASE_POST_EXPOSURE_CALIBRATION 2.0
+	#if FOXY_RAY_MODE == FOXY_RAY_VRTGI && FOXY_VRTGI_REALISTIC_MODE == 1
+		#define FOXY_PRESENTATION_POST_EXPOSURE_CALIBRATION 1.5
+	#else
+		#define FOXY_PRESENTATION_POST_EXPOSURE_CALIBRATION 2.0
+	#endif
+#endif
 #if FOXY_RAY_MODE == FOXY_RAY_VRTGI && FOXY_VRTGI_REALISTIC_MODE == 1
 	#define FOXY_VRTGI_REALISTIC_ACTIVE 1
 	#define FOXY_PRESENTATION_SUN_SCALE 5.0
 	#define FOXY_PRESENTATION_SKY_SCALE 4.0
-	#define FOXY_PRESENTATION_POST_EXPOSURE_CALIBRATION 1.5
 #else
 	#define FOXY_VRTGI_REALISTIC_ACTIVE 0
 	#define FOXY_PRESENTATION_SUN_SCALE 1.0
 	#define FOXY_PRESENTATION_SKY_SCALE 1.0
-	#define FOXY_PRESENTATION_POST_EXPOSURE_CALIBRATION 2.0
 #endif
 
 float PresentationDayWeight(const in float sunAltitude) {
@@ -267,17 +486,17 @@ float PresentationPostExposureCalibration(const in float daylightWeight) {
 	);
 }
 
-#if FOXY_RAY_MODE > 0
+#if FOXY_RAY_MODE > 0 && FOXY_RAY_MODE != FOXY_RAY_RSM
 	#define FOXY_RAY_ACTIVE 1
 #else
 	#define FOXY_RAY_ACTIVE 0
 #endif
-#if FOXY_RAY_MODE == FOXY_RAY_SSGI || FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI || FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
+#if FOXY_RAY_MODE == FOXY_RAY_SSPT || FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI || FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
 	#define FOXY_SSPT 1
 #else
 	#define FOXY_SSPT 0
 #endif
-#if FOXY_RAY_MODE >= FOXY_RAY_IRC
+#if FOXY_RAY_MODE == FOXY_RAY_IRC || FOXY_RAY_MODE == FOXY_RAY_VRTGI || FOXY_RAY_MODE == FOXY_RAY_SSPT_VRTGI || FOXY_RAY_MODE == FOXY_RAY_IRC_SSPT
 	#define FOXY_VOXEL_GI_ACTIVE 1
 #else
 	#define FOXY_VOXEL_GI_ACTIVE 0
@@ -297,7 +516,7 @@ float PresentationPostExposureCalibration(const in float daylightWeight) {
 #else
 	#define FOXY_SSPT_TEMPORAL_ACTIVE 0
 #endif
-#if FOXY_RAY_ACTIVE == 1 || FOXY_MATERIAL_REFLECTIONS == 1
+#if FOXY_RAY_ACTIVE == 1 || FOXY_RSM_ACTIVE == 1 || FOXY_MATERIAL_REFLECTIONS == 1
 	#define FOXY_PT_GBUFFER_ACTIVE 1
 #else
 	#define FOXY_PT_GBUFFER_ACTIVE 0
@@ -327,12 +546,27 @@ float PresentationPostExposureCalibration(const in float daylightWeight) {
 #define FOXY_CLOUD_QUALITY 0 // [0 1 2]
 #define FOXY_CLOUD_STEPS 40 // [4 6 8 10 12 14 16 20 24 28 34 40 48 56 64 72 84]
 #define FOXY_CLOUD_LIGHT_STEPS 6 // [1 2 3 4 5 6 8]
+// Dither depth for the cloud light-march sample offsets.  Higher removes the
+// hard light/dark banding but trades it for visible per-pixel noise; lower is
+// cleaner but leaves the banding.  Tune this against a sunlit cloud side: drop
+// it until the grain settles, raise it until the banding breaks up.
+#define FOXY_CLOUD_LIGHT_DITHER 0.85 // [0.00 0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40 0.45 0.50 0.55 0.60 0.65 0.70 0.75 0.80 0.85 0.90 0.95 1.00]
+// Master switch for the dither.  Setting this to 0 restores the original
+// deterministic midpoint sampling and makes the depth above have no effect.
+// Off by default: turning it on fixes the banding but noticeably raises noise,
+// so it is opt-in.
+#define FOXY_CLOUD_LIGHT_DITHER_ENABLED 0 // [0 1]
 #define FOXY_CLOUD_MULTISCATTERING 0 // [0 1 2]
 #define FOXY_CLOUD_BLOCK_SHAPE 0 // [0 1]
 #define FOXY_CLOUD_MEDIUM_DENSITY_SCALE 1.0 // [0.10 0.20 0.35 0.50 0.75 1.0 1.25 1.50 2.0 3.0 4.0 6.0 8.0]
 #define FOXY_CLOUD_EXTINCTION_SCALE 1.0 // [0.10 0.20 0.35 0.50 0.75 1.0 1.25 1.50 2.0 3.0 4.0 6.0 8.0]
 #define FOXY_CLOUD_MULTISCATTER_SCALE 1.0 // [0.0 0.10 0.20 0.35 0.50 0.75 1.0 1.25 1.50 2.0 3.0 4.0 6.0 8.0]
 #define FOXY_CLOUD_COVERAGE 0.40 // [0.00 0.01 0.02 0.03 0.04 0.05 0.06 0.07 0.08 0.09 0.10 0.11 0.12 0.13 0.14 0.15 0.16 0.17 0.18 0.19 0.20 0.21 0.22 0.23 0.24 0.25 0.26 0.27 0.28 0.29 0.30 0.31 0.32 0.33 0.34 0.35 0.36 0.37 0.38 0.39 0.40 0.41 0.42 0.43 0.44 0.45 0.46 0.47 0.48 0.49 0.50 0.51 0.52 0.53 0.54 0.55 0.56 0.57 0.58 0.59 0.60 0.61 0.62 0.63 0.64 0.65 0.66 0.67 0.68 0.69 0.70 0.71 0.72 0.73 0.74 0.75 0.76 0.77 0.78 0.79 0.80 0.81 0.82 0.83 0.84 0.85 0.86 0.87 0.88 0.89 0.90 0.91 0.92 0.93 0.94 0.95 0.96 0.97 0.98 0.99 1.00]
+// Coverage the sky reaches at full rain.  Keeping the rainy target near the
+// clear value makes the sky read as overcast without hiding the horizon: rain
+// darkens and grays instead of filling the sky.  Lower it for a thinner rainy
+// sky, raise it for a heavier storm.
+#define FOXY_CLOUD_RAIN_COVERAGE 0.48 // [0.00 0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40 0.42 0.45 0.48 0.50 0.55 0.60 0.65]
 #define FOXY_CLOUD_DENSITY 1.50 // [0.25 0.40 0.55 0.72 0.90 1.05 1.10 1.30 1.50]
 #define FOXY_CLOUD_TEMPERATURE -1.0 // [-1.0 -0.75 -0.50 -0.25 0.0 0.25 0.50 0.75 1.0]
 #define FOXY_CLOUD_SPEED 0.35 // [0.0 0.20 0.35 0.55 0.75 1.0 1.30]
@@ -360,16 +594,78 @@ float PresentationPostExposureCalibration(const in float daylightWeight) {
 #define FOXY_CLOUD_HARD_HEIGHT_LIMIT 3.0 // [1.0 1.20 1.45 1.70 2.0 2.35 2.70 3.0]
 #define FOXY_CLOUD_RENDER_RANGE_SCALE 1.0 // [1.0 4.0 8.0 16.0 24.0 32.0 48.0 57.0 72.0 88.0 100.0]
 #define FOXY_CLOUD_SHADOW_STRENGTH 0.0 // [0.0 0.15 0.30 0.42 0.55 0.70 0.85]
-const float sunPathRotation = -28.0; // [-45.0 -35.0 -28.0 -20.0 -10.0 0.0 10.0 20.0 28.0 35.0 45.0]
+
+#define FOXY_WEATHER_ENABLED 1 // [0 1]
+#define FOXY_WEATHER_TRANSITION 2.0 // [0.0 0.5 1.0 2.0 3.0 4.0 6.0 8.0 12.0]
+#define FOXY_WEATHER_OFFSET 0 // [0 1 2 3 4 5]
+#define FOXY_WEATHER_GALE_LEAN 0.30 // [0.0 0.10 0.20 0.30 0.45 0.60 0.85]
+#define FOXY_WEATHER_DAYS 6
+#define FOXY_SECONDS_PER_GAME_DAY 1200.0
+
+#define FOXY_WEATHER_DAY1 2 // [0 1 2 3 4 5]
+#define FOXY_WEATHER_DAY1_CLOUD -0.05 // [-0.30 -0.25 -0.20 -0.15 -0.10 -0.05 0.0 0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40]
+#define FOXY_WEATHER_DAY1_FOG_DAY 1.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 2.0 2.50 3.0]
+#define FOXY_WEATHER_DAY1_FOG_TWILIGHT 1.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 2.0 2.50 3.0]
+
+#define FOXY_WEATHER_DAY2 0 // [0 1 2 3 4 5]
+#define FOXY_WEATHER_DAY2_CLOUD 0.0 // [-0.30 -0.25 -0.20 -0.15 -0.10 -0.05 0.0 0.05 0.10 0.15 0.20 0.25 0.30 0.40]
+#define FOXY_WEATHER_DAY2_FOG_DAY 1.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 2.0 2.50 3.0]
+#define FOXY_WEATHER_DAY2_FOG_TWILIGHT 1.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 2.0 2.50 3.0]
+
+#define FOXY_WEATHER_DAY3 2 // [0 1 2 3 4 5]
+#define FOXY_WEATHER_DAY3_CLOUD 0.0 // [-0.30 -0.25 -0.20 -0.15 -0.10 -0.05 0.0 0.05 0.10 0.15 0.20 0.25 0.30 0.40]
+#define FOXY_WEATHER_DAY3_FOG_DAY 1.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 2.0 2.50 3.0]
+#define FOXY_WEATHER_DAY3_FOG_TWILIGHT 1.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 2.0 2.50 3.0]
+
+#define FOXY_WEATHER_DAY4 3 // [0 1 2 3 4 5]
+#define FOXY_WEATHER_DAY4_CLOUD 0.0 // [-0.30 -0.25 -0.20 -0.15 -0.10 -0.05 0.0 0.05 0.10 0.15 0.20 0.25 0.30 0.40]
+#define FOXY_WEATHER_DAY4_FOG_DAY 1.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 2.0 2.50 3.0]
+#define FOXY_WEATHER_DAY4_FOG_TWILIGHT 1.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 2.0 2.50 3.0]
+
+#define FOXY_WEATHER_DAY5 5 // [0 1 2 3 4 5]
+#define FOXY_WEATHER_DAY5_CLOUD 0.0 // [-0.30 -0.25 -0.20 -0.15 -0.10 -0.05 0.0 0.05 0.10 0.15 0.20 0.25 0.30 0.40]
+#define FOXY_WEATHER_DAY5_FOG_DAY 1.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 2.0 2.50 3.0]
+#define FOXY_WEATHER_DAY5_FOG_TWILIGHT 1.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 2.0 2.50 3.0]
+
+#define FOXY_WEATHER_DAY6 1 // [0 1 2 3 4 5]
+#define FOXY_WEATHER_DAY6_CLOUD 0.0 // [-0.30 -0.25 -0.20 -0.15 -0.10 -0.05 0.0 0.05 0.10 0.15 0.20 0.25 0.30 0.40]
+#define FOXY_WEATHER_DAY6_FOG_DAY 1.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 2.0 2.50 3.0]
+#define FOXY_WEATHER_DAY6_FOG_TWILIGHT 1.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 2.0 2.50 3.0]
+
+#define FOXY_SEASONS 1 // [0 1]
+#define FOXY_SEASON_DAYS 6 // [3 4 6 8 12]
+#define FOXY_SEASON_TRANSITION 2 // [0 1 2 3 4]
+#define FOXY_SEASON_STRENGTH 1.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50]
+#define FOXY_SEASON_AUTUMN_HUE 0.09 // [0.02 0.04 0.06 0.07 0.08 0.09 0.11 0.13 0.15 0.17 0.20]
+#define FOXY_SEASON_AUTUMN_SATURATION 1.45 // [1.0 1.10 1.20 1.30 1.45 1.60 1.80]
+#define FOXY_SEASON_AUTUMN_BRIGHTNESS 1.06 // [0.90 0.96 1.0 1.06 1.12 1.20]
+#define FOXY_SEASON_WINTER_WHITENESS 0.90 // [0.0 0.25 0.50 0.65 0.75 0.82 0.90 0.95 1.0]
+#define FOXY_SEASON_WINTER_DETAIL 0.35 // [0.0 0.15 0.25 0.35 0.50 0.65 0.80 1.0]
+#define FOXY_SEASON_WINTER_R 0.90 // [0.60 0.70 0.75 0.80 0.85 0.88 0.90 0.94 0.97 1.0]
+#define FOXY_SEASON_WINTER_G 0.94 // [0.60 0.70 0.75 0.80 0.85 0.90 0.94 0.97 1.0]
+#define FOXY_SEASON_WINTER_B 1.00 // [0.60 0.70 0.75 0.80 0.85 0.90 0.94 0.97 1.0]
+#define FOXY_SEASON_SUN_ILLUMINANCE_SUMMER 2.00 // [0.50 0.75 1.0 1.25 1.50 1.75 2.00 2.50 3.00]
+#define FOXY_SEASON_SUN_ILLUMINANCE_WINTER 0.75 // [0.25 0.40 0.50 0.60 0.75 0.90 1.0 1.25]
+
+#if defined(FOXY_DIM_NETHER) || defined(FOXY_DIM_END)
+	#define FOXY_WEATHER_ACTIVE 0
+	#define FOXY_SEASON_ACTIVE 0
+#else
+	#define FOXY_WEATHER_ACTIVE FOXY_WEATHER_ENABLED
+	#define FOXY_SEASON_ACTIVE FOXY_SEASONS
+#endif
+const float sunPathRotation = -40.0; // [-45.0 -40.0 -35.0 -30.0 -25.0 -20.0 -15.0 -10.0 -5.0 0.0 5.0 10.0 15.0 20.0 25.0 30.0 35.0 40.0 45.0]
 #define FOXY_SUN_PATH_ROTATION sunPathRotation
 #define FOXY_SHADOW_FILTERING 1 // [0 1]
 #define FOXY_SHADOW_QUALITY 0 // [0 1 2]
-#define FOXY_SHADOW_RESOLUTION 1024 // [1024 1536 2048 3072 4096]
+#define FOXY_SHADOW_RESOLUTION 2048 // [1024 1536 2048 3072 4096]
 #define FOXY_SHADOW_DISTANCE 160.0 // [64.0 96.0 128.0 160.0 192.0 256.0 320.0]
 #define FOXY_SHADOW_STRENGTH 1.0 // [0.0 0.25 0.50 0.65 0.82 0.92 1.0]
+#define FOXY_DH_LOD_TEXTURES 0 // [0 1]
 #define FOXY_SHADOW_SOFTNESS 0.25 // [0.0 0.08 0.15 0.25 0.35 0.50 0.75 1.0]
 #define FOXY_SHADOW_WARP 0.88 // [0.0 0.35 0.55 0.70 0.82 0.88 0.92]
 #define FOXY_SHADOW_AMBIENT_DARKEN 0.32 // [0.0 0.15 0.25 0.32 0.45 0.60 0.75]
+#define FOXY_VOXEL_DDA_HARD_SHADOW 0 // [0 1]
 #if FOXY_SHADOW_QUALITY <= 0
 	#define FOXY_SHADOW_BLOCKER_SAMPLES 4
 	#define FOXY_SHADOW_BLOCKER_BASE_SAMPLES 4
@@ -385,7 +681,9 @@ const float sunPathRotation = -28.0; // [-45.0 -35.0 -28.0 -20.0 -10.0 0.0 10.0 
 #endif
 #define FOXY_WATER_REFLECTION 0.65 // [0.0 0.15 0.25 0.38 0.50 0.65 0.80]
 #define FOXY_WATER_REFLECTION_STRETCH 0.55 // [0.15 0.25 0.40 0.55 0.75 1.0]
-#define FOXY_WATER_SUN_GLINT 1.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 2.0]
+#define FOXY_WATER_SUN_GLINT 0.0 // [0.0 0.25 0.50 0.75 1.0 1.25 1.50 2.0]
+const float FOXY_MATERIAL_WATER_GLINT_MAX = 4096.0;
+const float FOXY_MATERIAL_WATER_GLINT_LOG_RANGE = 12.0003521775;
 #define FOXY_WATER_UNDERWATER 0.65 // [0.0 0.25 0.45 0.65 0.85 1.0]
 #define FOXY_UNDERWATER_VL_STRENGTH 2.0 // [0.0 0.25 0.50 0.75 1.0 1.5 2.0 3.0 4.0 5.0 6.0 8.0 10.0]
 #define FOXY_WATER_FOG 0.75 // [0.0 0.25 0.45 0.65 0.75 0.90 1.0]
@@ -398,7 +696,7 @@ const float sunPathRotation = -28.0; // [-45.0 -35.0 -28.0 -20.0 -10.0 0.0 10.0 
 #define FOXY_WATER_SPECTRUM_WAVES 1 // [0 1]
 #define FOXY_WATER_SPECTRUM_SCALE 1.0 // [0.25 0.35 0.50 0.70 0.85 1.0 1.25 1.50 2.0 3.0 4.0 6.0 8.0]
 #define FOXY_WATER_SPECTRUM_VERTEX_HEIGHT 2.0 // [0.0 0.25 0.50 0.75 1.0 1.50 2.0 3.0 4.0 6.0 8.0]
-#define FOXY_WATER_SPECTRUM_VERTEX_ANCHOR 0.60 // [0.0 0.25 0.40 0.50 0.60 0.75 0.90 1.0 1.25 1.50]
+#define FOXY_WATER_SPECTRUM_VERTEX_ANCHOR 0.75 // [0.0 0.25 0.40 0.50 0.60 0.75 0.90 1.0 1.25 1.50]
 #define FOXY_WATER_SPECTRUM_LARGE_SCALE 3.0 // [0.25 0.35 0.50 0.70 0.85 1.0 1.25 1.50 2.0 3.0 4.0 6.0 8.0]
 #define FOXY_WATER_SPECTRUM_LARGE_HEIGHT 6.0 // [0.0 0.25 0.50 0.75 1.0 1.50 2.0 3.0 4.0 6.0 8.0]
 #define FOXY_WATER_SPECTRUM_MID_SCALE 3.0 // [0.25 0.35 0.50 0.70 0.85 1.0 1.25 1.50 2.0 3.0 4.0 6.0 8.0]
@@ -408,7 +706,7 @@ const float sunPathRotation = -28.0; // [-45.0 -35.0 -28.0 -20.0 -10.0 0.0 10.0 
 #define FOXY_WATER_SPECTRUM_WARP 0.75 // [0.0 0.25 0.50 0.75 1.0 1.50 2.0 3.0 4.0]
 #define FOXY_WATER_SPECTRUM_NORMAL_DETAIL 1.0 // [0.0 0.25 0.50 0.75 1.0 1.50 2.0 3.0 4.0]
 #define FOXY_WATER_WAVE_STRENGTH 0.55 // [0.0 0.25 0.40 0.55 0.70 0.85 1.0]
-#define FOXY_WATER_WAVE_SPEED 1.75 // [0.0 0.25 0.45 0.65 0.85 1.0 1.35 1.75 2.0 2.5]
+#define FOXY_WATER_WAVE_SPEED 4.375 // [0.0 0.25 0.45 0.65 0.85 1.0 1.35 1.75 2.0 2.5 4.375]
 #define FOXY_WATER_NORMAL_AA_STRENGTH 1.0 // [0.0 0.25 0.50 0.75 1.0]
 #define FOXY_WATER_OPT_FAST_REFLECTION_TRACE 0 // [0 1]
 #define FOXY_WATER_OPT_SKIP_REFLECTION_REFINE 0 // [0 1]

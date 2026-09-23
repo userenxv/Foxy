@@ -129,7 +129,7 @@ vec4 TraceWaterReflection(
 	vec3 rayDirection = vec3(screenDelta.xy, 1.0);
 	float traceStep = traceLimit / activeStepCount;
 	vec2 stablePixel = floor(WaterCurrentViewUv(texcoord) / SrActivePixelSize());
-	float dither = 0.20 + Hash12(stablePixel) * 0.30;
+	float dither = 0.20 + ReflectionMarchDither(stablePixel, frameCounter) * 0.30;
 	vec3 previousRay = startRay + rayDirection * (traceStep * 0.05);
 	vec3 ray = startRay + rayDirection * (traceStep * dither);
 

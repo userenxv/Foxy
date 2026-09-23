@@ -22,6 +22,7 @@ varying vec4 vertexShadowClip;
 varying float waterWaveHeight;
 varying float isWater;
 varying float isIce;
+varying float isIceSolid;
 varying float vertexMaterialId;
 varying float vertexEmissionLevel;
 varying vec3 vertexSunLightColor;
@@ -41,7 +42,6 @@ uniform vec3 cameraPosition;
 uniform vec3 sunPosition;
 uniform vec3 moonPosition;
 uniform vec3 upPosition;
-uniform float frameTimeCounter;
 uniform float rainStrength;
 
 void main() {
@@ -50,7 +50,7 @@ void main() {
 	surfaceColor = gl_Color;
 	float entityId = mc_Entity.x;
 	vertexMaterialId = entityId;
-	vertexEmissionLevel = max(at_midBlock.w, 0.0);
+	vertexEmissionLevel = BlockEmissionLevel(entityId, at_midBlock);
 	float mappedWater = step(10007.5, entityId) * step(entityId, 10008.5);
 	float legacyWater = step(7.5, entityId) * step(entityId, 9.5);
 	float mappedIce = step(10078.5, entityId) * step(entityId, 10082.5);
@@ -58,6 +58,9 @@ void main() {
 	legacyIce = max(legacyIce, step(211.5, entityId) * step(entityId, 212.5));
 	isWater = max(mappedWater, legacyWater);
 	isIce = max(mappedIce, legacyIce);
+	float mappedIceSolid = step(10078.5, entityId) * step(entityId, 10079.5);
+	float legacyIceSolid = step(78.5, entityId) * step(entityId, 79.5);
+	isIceSolid = max(mappedIceSolid, legacyIceSolid);
 	vec3 celestialUp = normalize(upPosition);
 	vec3 celestialSun;
 	vec3 celestialMoon;

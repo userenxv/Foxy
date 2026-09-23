@@ -262,6 +262,8 @@ ReflectionTemporalResult ResolveReflectionTemporal(
 	float historyWeight = mix(0.72, progressiveWeight, step(1.5, reflectionType));
 	if (reflectionType >= 1.5) {
 		historyWeight = mix(0.80, 0.96875, smoothstep(2.0, 24.0, historyAge));
+	} else {
+		historyWeight = mix(0.72, 0.90, smoothstep(2.0, 32.0, historyAge));
 	}
 
 	float historyResponseCap = mix(

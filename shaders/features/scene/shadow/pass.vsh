@@ -1,4 +1,6 @@
 #include "/lib/settings.glsl"
+#include "/lib/sable.glsl"
+uniform mat4 gbufferModelView;
 #include "/lib/math.glsl"
 #include "/lib/shadow.glsl"
 #include "/lib/transmission.glsl"
@@ -26,16 +28,20 @@ varying vec3 surfaceWorldPosition;
 varying float isWater;
 varying float vertexMaterialId;
 
+#if FOXY_RAY_MODE == FOXY_RAY_RSM
+varying vec3 surfaceShadowNormal;
+#endif
+
 attribute vec4 mc_Entity;
 attribute vec2 mc_midTexCoord;
 
 uniform mat4 shadowModelViewInverse;
 uniform mat4 shadowModelView;
 uniform vec3 cameraPosition;
-uniform float frameTimeCounter;
 uniform float rainStrength;
 
 void main() {
+	bool sableSubLevel = SableSubLevelDraw(gl_ModelViewMatrix, gbufferModelView, shadowModelView);
 	texcoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
 	surfaceColor = gl_Color;
 	float entityId = mc_Entity.x;
@@ -58,9 +64,16 @@ void main() {
 			rainStrength
 		);
 	#endif
-	vec4 shadowViewPos = shadowModelView * vec4(playerPos, 1.0);
-	gl_Position = ShadowWarpClip(gl_ProjectionMatrix * shadowViewPos);
+	vec3 aimedPlayerPos = FoEndShadowAim(shadowModelViewInverse) * playerPos;
+	vec4 shadowViewPos = shadowModelView * vec4(aimedPlayerPos, 1.0);
+	gl_Position = ShadowWarpClip(FoEndShadowProjection(gl_ProjectionMatrix) * shadowViewPos);
 	surfaceWorldPosition = playerPos + cameraPosition;
+
+	#if FOXY_RAY_MODE == FOXY_RAY_RSM
+		surfaceShadowNormal = normalize(
+			mat3(shadowModelViewInverse) * gl_NormalMatrix * gl_Normal
+		);
+	#endif
 
 	#if FOXY_VOXEL_ACTIVE == 1
 		if (VOXEL_GEOMETRY_ELIGIBLE(entityId)) {
@@ -81,11 +94,11 @@ void main() {
 				cameraPosition,
 				uint(max(entityId, 0.0) + 0.5),
 				sceneNormal,
-				at_midBlock.w,
-				lightmapUv
+				BlockEmissionLevel(entityId, at_midBlock),
+				lightmapUv, sableSubLevel
 			);
 			#if FOXY_MATERIAL_REFLECTIONS == 1 && FOXY_MATERIAL_REFLECTION_GLOBAL == 1 && FOXY_MATERIAL_REFLECTION_OFFSCREEN == 1 && !defined(COLORWHEEL)
-				VoxelMaterialColorStore(
+				if (!sableSubLevel) VoxelMaterialColorStore(
 					ivec3(floor(VoxelGridSceneToGrid(centeredScenePos, cameraPosition))),
 					storedMaterialId,
 					VoxelEncodeAxisNormal(sceneNormal),

@@ -1,3 +1,4 @@
+#define FOXY_FRAME_WEATHER_READER
 #include "/lib/settings.glsl"
 #include "/lib/math.glsl"
 #include "/lib/celestial.glsl"
@@ -5,6 +6,7 @@
 #include "/lib/dimension_sky.glsl"
 #include "/lib/wind.glsl"
 #include "/lib/emissive.glsl"
+#include "/lib/sable.glsl"
 
 uniform float viewWidth;
 uniform float viewHeight;
@@ -22,6 +24,8 @@ varying vec3 surfaceViewPosition;
 varying vec3 surfaceWorldPosition;
 varying float vertexMaterialId;
 varying float vertexEmissionLevel;
+varying float vertexSubLevel;
+#if FOXY_FRAME_CELESTIAL_ACTIVE == 0
 varying vec3 vertexSunLightColor;
 varying vec3 vertexMoonLightColor;
 varying vec3 vertexSkyAmbientColor;
@@ -31,6 +35,7 @@ varying vec3 vertexUpView;
 varying vec2 vertexShadowSelection;
 varying float vertexSunAltitude;
 varying float vertexMoonAltitude;
+#endif
 
 #if FOXY_PBR_NORMAL_MAPS == 1 && defined(TERRAIN)
 attribute vec4 at_tangent;
@@ -46,13 +51,13 @@ attribute vec4 at_midBlock;
 
 uniform mat4 gbufferModelViewInverse;
 uniform mat4 gbufferModelView;
+uniform mat4 shadowModelView;
 uniform vec3 cameraPosition;
 uniform vec3 sunPosition;
 uniform vec3 moonPosition;
 uniform vec3 shadowLightPosition;
 uniform vec3 upPosition;
 uniform float rainStrength;
-uniform float frameTimeCounter;
 
 void main() {
 	texcoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
@@ -65,9 +70,10 @@ void main() {
 	surfaceColor = gl_Color;
 	surfaceNormalView = normalize(gl_NormalMatrix * gl_Normal);
 	vertexMaterialId = mc_Entity.x;
+	vertexSubLevel = SableSubLevelDraw(gl_ModelViewMatrix, gbufferModelView, shadowModelView) ? 1.0 : 0.0;
 	#ifdef TERRAIN
 
-		vertexEmissionLevel = max(at_midBlock.w, 0.0);
+		vertexEmissionLevel = BlockEmissionLevel(vertexMaterialId, at_midBlock);
 	#else
 
 		vertexEmissionLevel = EmissionFallbackLevel(vertexMaterialId);
@@ -91,6 +97,7 @@ void main() {
 	SrScaleClipPositionJittered(gl_Position, srJitter);
 	surfaceViewPosition = viewPos.xyz;
 	surfaceWorldPosition = playerPos;
+	#if FOXY_FRAME_CELESTIAL_ACTIVE == 0
 	vec3 celestialUp = normalize(upPosition);
 	vec3 celestialSun;
 	vec3 celestialMoon;
@@ -108,22 +115,30 @@ void main() {
 		vertexMoonAltitude = -1.0;
 		vertexSunLightColor = vec3(0.0);
 		vertexMoonLightColor = vec3(0.0);
-		vertexSkyAmbientColor = NetherEnvironmentFluence() * 4.0 * FOXY_AMBIENT_INTENSITY;
+		#if FOXY_RAY_ACTIVE == 1
+			vertexSkyAmbientColor = NetherEnvironmentFluence() * 4.0 * FOXY_AMBIENT_INTENSITY;
+		#else
+			vertexSkyAmbientColor = NetherAmbientColor();
+		#endif
 	#elif defined(FOXY_DIM_END)
-		vertexSunView = normalize(
-			mat3(gbufferModelView) * EndSunWorldDirection()
-		);
+		vertexSunView = normalize(mat3(gbufferModelView) * EndSunWorldDirection());
 		vertexMoonView = -vertexSunView;
-		vertexShadowSelection = vec2(1.0, 0.0);
-		vertexSunAltitude = 0.86602540;
-		vertexMoonAltitude = -0.86602540;
+		vertexShadowSelection = vec2(1.0, 1.0);
+		vertexSunAltitude = clamp(normalize(EndSunWorldDirection()).y, 0.05, 1.0);
+		vertexMoonAltitude = -vertexSunAltitude;
 		vertexSunLightColor = vec3(0.0);
 		vertexMoonLightColor = vec3(0.0);
-		vertexSkyAmbientColor = EndEnvironmentFluence() * 0.75 * FOXY_AMBIENT_INTENSITY;
+		#if FOXY_RAY_ACTIVE == 1
+			vertexSkyAmbientColor = EndEnvironmentFluence() * 0.75 * FOXY_AMBIENT_INTENSITY;
+		#else
+			vertexSkyAmbientColor = EndAmbientColor();
+		#endif
 	#else
 		vertexSunLightColor = SunColor(vertexSunAltitude, rainStrength);
 		vertexMoonLightColor = MoonColor(vertexMoonAltitude, rainStrength);
 		vertexSkyAmbientColor = SkyAmbientColor(vertexSunAltitude, rainStrength);
+	#endif
+
 	#endif
 
 	#if FOXY_PBR_NORMAL_MAPS == 1 && defined(TERRAIN)

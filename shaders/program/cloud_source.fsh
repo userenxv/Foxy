@@ -1,3 +1,4 @@
+#define FOXY_FRAME_WEATHER_READER
 #define FOXY_CLOUD_COVERAGE_CACHE_READ
 uniform sampler2D colortex1;
 
@@ -16,7 +17,6 @@ uniform vec3 upPosition;
 uniform vec3 cameraPosition;
 uniform float viewWidth;
 uniform float viewHeight;
-uniform float frameTimeCounter;
 uniform float rainStrength;
 uniform int frameCounter;
 
@@ -116,9 +116,10 @@ ivec2 compactPixel = ivec2(floor(gl_FragCoord.xy));
 	vec3 moonWorld = cloudVertexMoonWorld;
 
 	vec3 skyColor = DecodeSkyLutColor(texture2D(colortex7, SkyViewLutUv(worldDir)).rgb);
+	vec3 cloudSkyFluence = CloudSkyFluenceRatio(colortex7, sunWorld.y);
 	float rayPhase = CloudStableRayPhase(cloudCameraWorldPos, worldDir, blueNoise, cloudSampleIndex);
 	float cloudDistance;
-	vec4 clouds = RenderCloudSystemDetailed(cloudCameraWorldPos, worldDir, sunWorld, moonWorld, skyColor, frameTimeCounter, rainStrength, rayPhase, cloudDistance);
+	vec4 clouds = RenderCloudSystemDetailed(cloudCameraWorldPos, worldDir, sunWorld, moonWorld, skyColor, frameTimeCounter + WeatherWindDrift(FOXY_WIND_CLOUDS), rainStrength, rayPhase, cloudSkyFluence, cloudDistance);
 	cloudDistance = CloudReferenceDistanceToWorld(cloudDistance);
 	clouds = CloudSourceClamp(clouds);
 

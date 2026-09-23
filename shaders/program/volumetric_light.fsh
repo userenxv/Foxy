@@ -1,9 +1,12 @@
+#define FOXY_FRAME_WEATHER_READER
 #include "/lib/settings.glsl"
 #include "/lib/math.glsl"
 #include "/lib/trace_common.glsl"
 #include "/lib/celestial.glsl"
 uniform sampler2D colortex7;
 uniform int frameCounter;
+#define FOXY_READ_ONLY_OPAQUE_ENDPOINT_CURRENT
+#define FOXY_READ_ONLY_WATER_SEGMENT_CURRENT
 #define FOXY_IMAGE_OPAQUE_ENDPOINT_CURRENT
 #define FOXY_IMAGE_WATER_SEGMENT_CURRENT
 #include "/lib/contracts/images.glsl"
@@ -22,7 +25,6 @@ uniform vec3 cameraPosition;
 uniform float viewWidth;
 uniform float viewHeight;
 uniform float far;
-uniform float frameTimeCounter;
 uniform float rainStrength;
 uniform float waterEnteredAltitude;
 uniform ivec2 eyeBrightnessSmooth;
@@ -35,7 +37,6 @@ varying vec3 vertexMoonLightColor;
 varying vec3 vertexSkyAmbientColor;
 varying vec3 vertexSunView;
 varying vec3 vertexMoonView;
-varying vec3 vertexUpView;
 varying float vertexSunAltitude;
 varying float vertexMoonAltitude;
 
@@ -66,13 +67,13 @@ Endpoint VolumeCurrentEndpoint(const in vec2 viewUv) {
 	);
 }
 
-vec2 VolumeTemporalNoise(const in vec2 fragCoord) {
+float VolumeTemporalDither(const in vec2 fragCoord) {
 
-vec2 texel = mod(floor(fragCoord), vec2(128.0));
+	vec2 texel = mod(floor(fragCoord), vec2(128.0));
 	vec3 stbnUv = (vec3(texel, 0.0) + vec3(0.5)) / vec3(128.0, 128.0, 64.0);
-	vec2 spatialSeed = texture3D(cloudStbnVec2, stbnUv).rg;
+	float spatialSeed = texture3D(cloudStbnVec2, stbnUv).r;
 	float temporalPhase = mod(float(frameCounter), 8.0) * 0.125;
-	return fract(spatialSeed + vec2(temporalPhase, temporalPhase * 3.0));
+	return fract(spatialSeed + temporalPhase);
 }
 
 vec2 VolumeCompactSelectedPhase() {
@@ -112,13 +113,10 @@ void main() {
 		gbufferProjectionInverse,
 		far
 	);
-	vec3 upView = vertexUpView;
 	vec3 sunView = vertexSunView;
 	vec3 moonView = vertexMoonView;
 	vec3 shadowLightView = normalize(shadowLightPosition);
-	vec2 temporalNoise = VolumeTemporalNoise(sourcePixel);
-	float dither = temporalNoise.x;
-	float shadowPhase = temporalNoise.y;
+	float dither = VolumeTemporalDither(sourcePixel);
 	float skyEye = Saturate(float(eyeBrightnessSmooth.y) / 240.0);
 	float blockEye = Saturate(float(eyeBrightnessSmooth.x) / 240.0);
 	float caveMask = max(skyEye, blockEye * 0.38);
@@ -136,7 +134,6 @@ void main() {
 			sunView,
 			moonView,
 			shadowLightView,
-			upView,
 			vertexSunLightColor,
 			vertexMoonLightColor,
 			vertexSkyAmbientColor,
@@ -146,7 +143,6 @@ void main() {
 			frameTimeCounter,
 			rainStrength,
 			dither,
-			shadowPhase,
 			skyEye,
 			waterEnteredAltitude + 1.35
 		);
@@ -162,7 +158,6 @@ void main() {
 			sunView,
 			moonView,
 			shadowLightView,
-			upView,
 			vertexSunLightColor,
 			vertexMoonLightColor,
 			vertexSkyAmbientColor,
@@ -173,10 +168,9 @@ void main() {
 			frameTimeCounter,
 			rainStrength,
 			dither,
-			shadowPhase,
 			caveMask
 		);
 	}
 
-gl_FragData[0] = EncodeVolumeBuffer(vec4(max(volume.scattering, vec3(0.0)), volume.transmittance));
+	gl_FragData[0] = EncodeVolumeBuffer(vec4(max(volume.scattering, vec3(0.0)), volume.transmittance));
 }

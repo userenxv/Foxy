@@ -9,6 +9,7 @@
 #include "/lib/trace_common.glsl"
 #include "/lib/celestial.glsl"
 #include "/lib/clouds.glsl"
+#include "/lib/weather.glsl"
 #include "/lib/water.glsl"
 
 uniform sampler2D shadowtex1;
@@ -36,33 +37,17 @@ uniform sampler2D shadowtex1;
 	#define FOXY_UNDERWATER_VL_STEPS 72
 #endif
 
+// Transport result consumed by volumetric_light; diagnostic accumulators were
+// never stored or read by this pipeline. Keep the interface to its actual outputs.
 struct VolumeSample {
 	vec3 scattering;
 	float transmittance;
-	float density;
-	float shadow;
-	float coverage;
-	float tyndall;
-	float clump;
-	float phase;
-	float terrainBlock;
-	float shadowMask;
-	float historyDistance;
 };
 
 VolumeSample VolumeEmptySample() {
 	VolumeSample result;
 	result.scattering = vec3(0.0);
 	result.transmittance = 1.0;
-	result.density = 0.0;
-	result.shadow = 1.0;
-	result.coverage = 0.0;
-	result.tyndall = 0.0;
-	result.clump = 0.0;
-	result.phase = 0.0;
-	result.terrainBlock = 0.0;
-	result.shadowMask = 0.0;
-	result.historyDistance = 1.0;
 	return result;
 }
 
@@ -88,9 +73,10 @@ float StandardMiePhase(const in float mu, const in float anisotropy) {
 	return phase;
 }
 
-vec2 StandardFogField(const in vec3 worldPos, const in float time) {
+float StandardFogDensity(const in vec3 worldPos, const in float time) {
 	#if FOXY_VL_CLUMPY_FOG == 1
-		vec2 wind = vec2(0.000325, -0.000250) * time;
+		vec2 windRate = vec2(-0.000325, -0.000250);
+		vec2 wind = windRate * (time + WeatherWindDrift(FOXY_WIND_FOG));
 		vec3 fieldCoord = worldPos * 0.003125;
 		fieldCoord.xz += wind;
 		vec3 fieldNoise = texture3D(cloudDetail3D, fract(fieldCoord)).rgb;
@@ -102,10 +88,9 @@ vec2 StandardFogField(const in vec3 worldPos, const in float time) {
 		float clusteredDensity = mix(0.20, 2.12, bankShape) * mix(0.92, 1.08, softCore);
 		float clumpiness = Saturate(FOXY_VL_CLUMPINESS);
 		float densityScale = clamp(mix(1.0, clusteredDensity, clumpiness), 0.16, 2.65);
-		float clump = bankShape * clumpiness;
-		return vec2(densityScale, clump);
+		return densityScale;
 	#else
-		return vec2(1.0, 0.0);
+		return 1.0;
 	#endif
 }
 
@@ -129,10 +114,28 @@ vec3 AirTimeWeights(const in float sunAltitude) {
 	return weights / max(dot(weights, vec3(1.0)), 0.0001);
 }
 
-float AirConfiguredDensity() {
+float AirAerosolDensityTimeMultiplier(const in float sunAltitude, const in float rainStrength) {
+	float daylight = smoothstep(0.12, 0.24, sunAltitude);
+	float noon = smoothstep(0.56, 0.78, sunAltitude);
+	float dayDensity = FOXY_AIR_DENSITY_DAYLIGHT * WeatherAerosolDayScale();
+	float twilightDensity = FOXY_AIR_DENSITY_TWILIGHT * WeatherAerosolTwilightScale();
+	float noonDensity = mix(FOXY_AIR_DENSITY_NOON, dayDensity, WeatherNoonDecayBypass());
+	float density = mix(twilightDensity, dayDensity, daylight);
+	density = mix(density, noonDensity, noon);
+	float nightBlend = 1.0 - smoothstep(-0.16, -0.04, sunAltitude);
+	float nightDensity = FOXY_AIR_DENSITY_NIGHT * WeatherAerosolDayScale();
+	density = mix(density, nightDensity, nightBlend);
+	// Rain overrides the sun-angle curve instead of riding on top of it, so a downpour
+	// carries the same haze at noon as it does at dusk - the solar noon notch cannot
+	// swallow the boost.  Eased in and out so the fog thickens with the rain.
+	float rainBlend = smoothstep(0.0, 1.0, Saturate(rainStrength));
+	return mix(density, max(density, FOXY_RAIN_AEROSOL_DENSITY), rainBlend);
+}
+
+float AirConfiguredDensity(const in float aerosolMultiplier) {
 	float density = 0.0;
 	#if FOXY_AIR_AEROSOL_ENABLED == 1
-		density = max(density, FOXY_AIR_AEROSOL_DENSITY);
+		density = max(density, FOXY_AIR_AEROSOL_DENSITY * aerosolMultiplier);
 	#endif
 	#if FOXY_AIR_MOLECULAR_ENABLED == 1
 		density = max(density, FOXY_AIR_MOLECULAR_DENSITY);
@@ -144,18 +147,15 @@ vec2 StandardAirDensity(
 	const in vec3 worldPos,
 	const in float time,
 	const in float rainStrength,
-	const in float caveMask,
-	out float clump
+	const in float caveMask
 ) {
 	float indoor = mix(0.16, 1.0, Saturate(caveMask));
 	float aerosol = 0.0;
 	float molecular = 0.0;
-	clump = 0.0;
 	#if FOXY_AIR_AEROSOL_ENABLED == 1
-		vec2 fogField = StandardFogField(worldPos, time);
-		clump = fogField.y;
+		float fogDensity = StandardFogDensity(worldPos, time);
 		aerosol = AirVerticalProfile(worldPos.y, FOXY_AIR_AEROSOL_FADE_START, FOXY_AIR_AEROSOL_FADE_END);
-		aerosol *= fogField.x * mix(1.0, 10.0, rainStrength) * indoor;
+		aerosol *= fogDensity * mix(1.0, 10.0, rainStrength) * indoor;
 	#endif
 	#if FOXY_AIR_MOLECULAR_ENABLED == 1
 		molecular = AirVerticalProfile(worldPos.y, FOXY_AIR_MOLECULAR_FADE_START, FOXY_AIR_MOLECULAR_FADE_END);
@@ -222,7 +222,6 @@ VolumeSample IntegrateVolume(
 	const in vec3 sunView,
 	const in vec3 moonView,
 	const in vec3 shadowLightView,
-	const in vec3 upView,
 	const in vec3 cachedSunLightColor,
 	const in vec3 cachedMoonLightColor,
 	const in vec3 cachedSkyAmbientColor,
@@ -233,16 +232,14 @@ VolumeSample IntegrateVolume(
 	const in float time,
 	const in float rainStrength,
 	const in float dither,
-	const in float shadowPhase,
 	const in float caveMask
 ) {
 	VolumeSample result = VolumeEmptySample();
 	vec3 rayDirView = normalize(sceneRayView);
-	vec3 rayDirWorld = normalize(mat3(modelViewInverse) * rayDirView);
 	float fogLength = max(fogDistance, 0.0);
 	vec3 airTimeWeights = AirTimeWeights(cachedSunAltitude);
-	float airDensityMultiplier = dot(airTimeWeights, vec3(FOXY_AIR_DENSITY_NOON, FOXY_AIR_DENSITY_TWILIGHT, FOXY_AIR_DENSITY_NIGHT));
-	if (fogLength <= 1.0 || AirConfiguredDensity() * airDensityMultiplier <= 0.0001 || FOXY_VL_STRENGTH <= 0.0001) {
+	float aerosolDensityMultiplier = AirAerosolDensityTimeMultiplier(cachedSunAltitude, rainStrength);
+	if (fogLength <= 1.0 || AirConfiguredDensity(aerosolDensityMultiplier) <= 0.0001 || FOXY_VL_STRENGTH <= 0.0001) {
 		return result;
 	}
 	vec3 noonAirTint = ColorTemperatureTint(float(FOXY_AIR_TEMPERATURE_NOON));
@@ -262,14 +259,17 @@ VolumeSample IntegrateVolume(
 	vec3 ambientColor = mix(fallbackAmbient, max(cachedSkyFluence, vec3(0.0)) * FOXY_AMBIENT_INTENSITY, skyFluenceValid);
 	float activeAltitude = mix(cachedMoonAltitude, cachedSunAltitude, useSun);
 	float activeShadowMatch = sourceConfidence;
-	float lightActive = DirectCelestialVisibility(activeAltitude) * sourceConfidence;
+	float volumetricHorizonVisibility = max(
+		DirectCelestialVisibility(activeAltitude),
+		smoothstep(-0.090, 0.0, activeAltitude)
+	);
+	float lightActive = volumetricHorizonVisibility * sourceConfidence;
 	vec3 lightDirWorld = TiltCelestialWorld(normalize(mat3(modelViewInverse) * lightDir));
 
 	float mu = dot(rayDirView, lightDir);
 	float rayleighPhase = VolumeRayleighPhase(mu);
 	float miePhase = StandardMiePhase(mu, FOXY_VL_ANISOTROPY);
 	float lowSunSide = smoothstep(-0.06, 0.14, activeAltitude) * (1.0 - smoothstep(0.30, 0.62, activeAltitude));
-	result.phase = Saturate(miePhase * 2.2);
 
 	vec3 rayleighBase = vec3(0.00089, 0.00207, 0.00506);
 	vec3 mieScatterBase = vec3(0.0066, 0.0061, 0.0055);
@@ -292,14 +292,6 @@ VolumeSample IntegrateVolume(
 	vec4 shadowRayDirection = shadowProjection * (shadowModelView * playerRayDirection);
 
 	vec3 transmittance = vec3(1.0);
-	float densitySum = 0.0;
-	float shadowSum = 0.0;
-	float historyDistanceSum = 0.0;
-	float occlusionSum = 0.0;
-	#if FOXY_VL_CLUMPY_FOG == 1
-		float clumpSum = 0.0;
-		float aerosolWeightSum = 0.0;
-	#endif
 	for (int i = 0; i < FOXY_VL_EXTENDED_MAX_STEPS; i++) {
 		if (i >= stepCount) {
 			break;
@@ -320,10 +312,9 @@ VolumeSample IntegrateVolume(
 		vec4 playerPos4 = playerRayOrigin + playerRayDirection * sampleDistance;
 		vec3 playerPos = playerPos4.xyz / TraceSafeDivisor(playerPos4.w);
 		vec3 worldPos = playerPos + cameraWorldPos;
-		float clumpSample;
-		vec2 densityParts = StandardAirDensity(worldPos, time, rainStrength, caveMask, clumpSample);
-		float aerosolDensity = densityParts.x * FOXY_AIR_AEROSOL_DENSITY * airDensityMultiplier;
-		float molecularDensity = densityParts.y * FOXY_AIR_MOLECULAR_DENSITY * airDensityMultiplier;
+		vec2 densityParts = StandardAirDensity(worldPos, time, rainStrength, caveMask);
+		float aerosolDensity = densityParts.x * FOXY_AIR_AEROSOL_DENSITY * aerosolDensityMultiplier;
+		float molecularDensity = densityParts.y * FOXY_AIR_MOLECULAR_DENSITY;
 		float density = aerosolDensity + molecularDensity * 0.36;
 		if (density <= 0.00001) {
 			continue;
@@ -352,7 +343,7 @@ VolumeSample IntegrateVolume(
 					worldPos,
 					cameraWorldPos,
 					lightDirWorld,
-					time,
+					time + WeatherWindDrift(FOXY_WIND_CLOUDS),
 					rainStrength
 				);
 			}
@@ -380,16 +371,6 @@ VolumeSample IntegrateVolume(
 		result.scattering += transmittance * source * stepIntegral;
 		transmittance *= stepTransmittance;
 
-		float densityWeight = density * integrationStepLength;
-		densitySum += densityWeight;
-		shadowSum += rangedVisibility * densityWeight;
-		occlusionSum += (1.0 - terrainVisibility) * directRangeWeight * densityWeight;
-		#if FOXY_VL_CLUMPY_FOG == 1
-			float aerosolWeight = aerosolDensity * integrationStepLength;
-			clumpSum += clumpSample * aerosolWeight;
-			aerosolWeightSum += aerosolWeight;
-		#endif
-		historyDistanceSum += sampleDistance * densityWeight;
 		if (Luma(transmittance) < 0.008) {
 			break;
 		}
@@ -397,20 +378,6 @@ VolumeSample IntegrateVolume(
 
 	result.scattering *= FOXY_VL_STRENGTH;
 	result.transmittance = Saturate(Luma(transmittance));
-	result.coverage = 1.0 - result.transmittance;
-	result.density = Saturate(densitySum * 0.035);
-	result.shadow = densitySum > 0.0001 ? Saturate(shadowSum / densitySum) : 1.0;
-	result.terrainBlock = densitySum > 0.0001 ? Saturate(occlusionSum / densitySum) : 0.0;
-	result.shadowMask = result.terrainBlock;
-	result.tyndall = Saturate(result.coverage * (1.0 - result.shadow) * 1.8);
-	#if FOXY_VL_CLUMPY_FOG == 1
-		result.clump = aerosolWeightSum > 0.0001 ? Saturate(clumpSum / aerosolWeightSum) : 0.0;
-	#else
-		result.clump = 0.0;
-	#endif
-	result.historyDistance = densitySum > 0.0001
-		? clamp(historyDistanceSum / densitySum, 1.0, fogLength)
-		: max(fogLength * 0.55, 1.0);
 	return result;
 }
 
@@ -425,7 +392,6 @@ VolumeSample IntegrateUnderwaterVolume(
 	const in vec3 sunView,
 	const in vec3 moonView,
 	const in vec3 shadowLightView,
-	const in vec3 upView,
 	const in vec3 cachedSunLightColor,
 	const in vec3 cachedMoonLightColor,
 	const in vec3 cachedSkyAmbientColor,
@@ -435,7 +401,6 @@ VolumeSample IntegrateUnderwaterVolume(
 	const in float time,
 	const in float rainStrength,
 	const in float dither,
-	const in float shadowPhase,
 	const in float skyEye,
 	const in float waterSurfaceAltitude
 ) {
@@ -459,7 +424,10 @@ VolumeSample IntegrateUnderwaterVolume(
 	float activeLightAltitude = mix(cachedMoonAltitude, cachedSunAltitude, useSunDirection);
 	vec3 sunWorld = TiltCelestialWorld(normalize(mat3(modelViewInverse) * sunDir));
 	vec3 lightColor = cachedSunLightColor * sourceWeights.x + cachedMoonLightColor * sourceWeights.y * 0.78;
-	lightColor *= DirectCelestialVisibility(activeLightAltitude);
+	lightColor *= max(
+		DirectCelestialVisibility(activeLightAltitude),
+		smoothstep(-0.090, 0.0, activeLightAltitude)
+	);
 	vec3 ambientColor = (cachedSkyAmbientColor + MoonAmbientColorFromMoonColor(cachedMoonLightColor)) * (0.10 + skyEye * 0.56);
 	vec3 extinction = WaterExtinction(Saturate(FOXY_WATER_FOG));
 	vec3 scatteringCoeff = vec3(0.010) * FOXY_WATER_DENSITY * mix(0.90, 1.22, Saturate(FOXY_WATER_FOG));
@@ -470,7 +438,6 @@ VolumeSample IntegrateUnderwaterVolume(
 	phase *= sunCoreCompression;
 	float shaft = pow(forwardAmount, 5.0) * (1.0 - rainStrength * 0.62) * day * sunCoreCompression;
 	float sideShaft = pow(Saturate(1.0 - abs(mu)), 1.30) * smoothstep(0.015, 0.26, sunWorld.y) * day;
-	result.phase = Saturate(phase * 3.0);
 	int stepCount = StandardWaterStepCount(fogLength, extendedReach);
 	float stepLength = fogLength / float(stepCount);
 	float rayJitter = mix(0.18, 0.92, Saturate(dither));
@@ -479,9 +446,6 @@ VolumeSample IntegrateUnderwaterVolume(
 	vec4 playerRayDirection = modelViewInverse * vec4(rayDirView, 0.0);
 	vec4 shadowRayOrigin = shadowProjection * (shadowModelView * playerRayOrigin);
 	vec4 shadowRayDirection = shadowProjection * (shadowModelView * playerRayDirection);
-	float densitySum = 0.0;
-	float shadowSum = 0.0;
-	float tyndallSum = 0.0;
 	for (int i = 0; i < FOXY_UNDERWATER_VL_STEPS; i++) {
 		if (i >= stepCount) {
 			break;
@@ -532,10 +496,6 @@ VolumeSample IntegrateUnderwaterVolume(
 		vec3 scatterWeight = (vec3(1.0) - stepTransmittance) * result.transmittance;
 		result.scattering += (directLight + ambientLight) * scatterWeight * scatteringCoeff / max(extinction, vec3(1.0e-4));
 		result.transmittance *= scalarTransmittance;
-		float densityWeight = density * stepLength;
-		densitySum += densityWeight;
-		shadowSum += rangedTerrainVisibility * densityWeight;
-		tyndallSum += (shaft * 0.58 + sideShaft * 0.42) * terrainVisibility * directRangeWeight * densityWeight;
 		if (result.transmittance < 0.055) {
 			result.transmittance = 0.055;
 			break;
@@ -543,12 +503,6 @@ VolumeSample IntegrateUnderwaterVolume(
 	}
 
 	result.scattering *= FOXY_VL_STRENGTH * FOXY_WATER_UNDERWATER * FOXY_UNDERWATER_VL_STRENGTH * mix(1.65, 2.45, Saturate(FOXY_WATER_FOG));
-	result.coverage = Saturate(1.0 - result.transmittance);
-	result.density = Saturate(densitySum * 0.030);
-	result.shadow = densitySum > 0.0001 ? Saturate(shadowSum / max(densitySum, 1.0e-4)) : 1.0;
-	result.tyndall = Saturate(tyndallSum * 0.060);
-	result.shadowMask = 1.0 - result.shadow;
-	result.historyDistance = max(fogLength * 0.62, 1.0);
 	return result;
 }
 

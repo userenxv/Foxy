@@ -52,7 +52,9 @@ DhShadowReceiver DhBuildShadowReceiver(
 	normalOffset = clamp(normalOffset, 0.018, 0.220);
 
 	vec3 normalPlayer = normalize(mat3(viewToPlayer) * normalView);
-	vec4 shadowClip = shadowProjection * shadowModelView * vec4(playerPos + normalPlayer * normalOffset, 1.0);
+	vec3 receiverPlayerPos = playerPos + normalPlayer * normalOffset;
+	vec4 shadowClip = FoEndShadowProjection(shadowProjection) * shadowModelView *
+		vec4(FoEndShadowAimFromView(shadowModelView) * receiverPlayerPos, 1.0);
 	vec3 shadowNdc = shadowClip.xyz / DhShadowSafeDivisor(shadowClip.w);
 	receiver.clipXY = shadowNdc.xy;
 	receiver.coord = vec3(ShadowWarp(receiver.clipXY), shadowNdc.z) * 0.5 + 0.5;
@@ -66,9 +68,10 @@ DhShadowReceiver DhBuildShadowReceiver(
 	if (abs(normalShadowZ) < 0.08) {
 		normalShadowZ = normalShadowZ < 0.0 ? -0.08 : 0.08;
 	}
-	float projectionX = DhShadowSafeDivisor(shadowProjection[0][0]);
-	float projectionY = DhShadowSafeDivisor(shadowProjection[1][1]);
-	receiver.depthSlope = -0.5 * shadowProjection[2][2] * vec2(
+	mat4 foShadowProjection = FoEndShadowProjection(shadowProjection);
+	float projectionX = DhShadowSafeDivisor(foShadowProjection[0][0]);
+	float projectionY = DhShadowSafeDivisor(foShadowProjection[1][1]);
+	receiver.depthSlope = -0.5 * foShadowProjection[2][2] * vec2(
 		normalShadow.x / projectionX,
 		normalShadow.y / projectionY
 	) / normalShadowZ;

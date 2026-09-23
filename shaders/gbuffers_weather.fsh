@@ -3,5 +3,4 @@
 #define WEATHER
 /* DRAWBUFFERS:3 */
 const bool colortex3Clear = true;
-#include "/entry/gbuffers/textured.fsh"
-
+#include "/program/gbuffer_weather.fsh"

@@ -205,6 +205,14 @@ vec3 FinalApplyWhiteBalance(const in vec3 color) {
 	#endif
 }
 
+vec3 FinalApplyToneBalance(const in vec3 color) {
+	vec3 balanced = FinalApplyWhiteBalance(color);
+	float tint = FOXY_TONEMAP_TINT;
+	vec3 tintScale = vec3(1.0 + tint * 0.26, 1.0 - tint * 0.42, 1.0 + tint * 0.26);
+	tintScale /= max(Luma(tintScale), 1.0e-6);
+	return max(balanced * tintScale, vec3(0.0));
+}
+
 vec3 FinalApplyColorGrade(const in vec3 color) {
 	float amount = Saturate(FOXY_COLOR_GRADING);
 	float luma = Luma(color);
@@ -224,6 +232,150 @@ vec3 FinalApplyColorGrade(const in vec3 color) {
 	graded = mix(vec3(gradedLuma), graded, mix(1.0, 1.035, amount * chromaWeight));
 	return max(graded, vec3(0.0));
 }
+
+vec3 FinalApplyToneCalibration(const in vec3 color) {
+	vec3 calibrated = vec3(0.5) + (color - vec3(0.5)) * FOXY_TONEMAP_CONTRAST;
+	float luma = Luma(calibrated);
+	calibrated = mix(vec3(luma), calibrated, FOXY_TONEMAP_SATURATION);
+	return pow(max(calibrated, vec3(0.0)), vec3(1.0 / max(FOXY_TONEMAP_GAMMA, 1.0e-4)));
+}
+
+#if FOXY_ACES2_CALIBRATION > 0
+#if FOXY_ACES2_CALIBRATION == 4 && FOXY_TONEMAPPER == 6
+vec3 FinalAces2DiagnosticInput(const in int row, const in int column) {
+	if (row == 0) return vec3(exp2(-10.0 + float(column)));
+	if (row == 1) return vec3(exp2(-2.0 + float(column)));
+	if (row == 2) {
+		if (column == 0) return vec3(0.18, 0.0, 0.0);
+		if (column == 1) return vec3(0.0, 0.18, 0.0);
+		if (column == 2) return vec3(0.0, 0.0, 0.18);
+		if (column == 3) return vec3(0.18, 0.18, 0.0);
+		if (column == 4) return vec3(0.18, 0.0, 0.18);
+		if (column == 5) return vec3(0.0, 0.18, 0.18);
+		if (column == 6) return vec3(0.18);
+		return vec3(0.18, 0.14, 0.10);
+	}
+	if (row == 3) {
+		if (column == 0) return vec3(1.0, 0.0, 0.0);
+		if (column == 1) return vec3(0.0, 1.0, 0.0);
+		if (column == 2) return vec3(0.0, 0.0, 1.0);
+		if (column == 3) return vec3(1.0, 1.0, 0.0);
+		if (column == 4) return vec3(1.0, 0.0, 1.0);
+		if (column == 5) return vec3(0.0, 1.0, 1.0);
+		if (column == 6) return vec3(1.0);
+		return vec3(1.0, 0.80, 0.60);
+	}
+	if (row == 4) {
+		if (column == 0) return vec3(4.0, 0.02, 0.02);
+		if (column == 1) return vec3(0.02, 4.0, 0.02);
+		if (column == 2) return vec3(0.02, 0.02, 4.0);
+		if (column == 3) return vec3(4.0, 4.0, 0.02);
+		if (column == 4) return vec3(4.0, 0.02, 4.0);
+		if (column == 5) return vec3(0.02, 4.0, 4.0);
+		if (column == 6) return vec3(4.0);
+		return vec3(4.0, 2.4, 1.0);
+	}
+	if (column == 0) return vec3(0.18);
+	if (column == 1) return vec3(0.18, 0.17, 0.16);
+	if (column == 2) return vec3(0.18, 0.18, 0.12);
+	if (column == 3) return vec3(0.18, 0.12, 0.18);
+	if (column == 4) return vec3(0.12, 0.18, 0.18);
+	if (column == 5) return vec3(1.0, 0.5, 0.1);
+	if (column == 6) return vec3(0.1, 0.5, 1.0);
+	return vec3(1.0, 1.0, 0.25);
+}
+
+vec3 FinalAces2CoreTonescale(const in vec3 color) {
+	const mat3 acesInput = mat3(
+		0.61309740, 0.33952315, 0.04737945,
+		0.07019372, 0.91635388, 0.01345240,
+		0.02061559, 0.10956977, 0.86981463
+	);
+	const mat3 acesOutput = mat3(
+		 1.70505099, -0.62179212, -0.08325887,
+		-0.13025642,  1.14080474, -0.01054832,
+		-0.02400336, -0.12896898,  1.15297233
+	);
+	vec3 ap1 = max(acesInput * max(color, vec3(0.0)), vec3(0.0));
+	float sceneLuma = dot(ap1, vec3(0.27222872, 0.67408177, 0.05368952));
+	vec3 mapped = ap1 * (Aces2Tonescale(sceneLuma) / max(sceneLuma, 1.0e-6));
+	return Saturate3(acesOutput * mapped);
+}
+
+vec3 FinalApplyAces2DiagnosticGrid(const in vec2 uv) {
+	vec2 chartUv = vec2(uv.x, 1.0 - uv.y);
+	vec2 grid = chartUv * vec2(8.0, 6.0);
+	int column = int(clamp(floor(grid.x), 0.0, 7.0));
+	int row = int(clamp(floor(grid.y), 0.0, 5.0));
+	vec2 cellUv = fract(grid);
+	float cellMask = step(0.035, cellUv.x) * step(0.035, cellUv.y) *
+		step(cellUv.x, 0.965) * step(cellUv.y, 0.965);
+	float bandUv = fract(cellUv.x * 3.0);
+	float bandMask = step(0.055, bandUv) * step(bandUv, 0.945);
+	vec3 inputColor = FinalAces2DiagnosticInput(row, column);
+	vec3 direct = LinearToSrgb(Saturate3(inputColor));
+	vec3 core = LinearToSrgb(FinalAces2CoreTonescale(inputColor));
+	vec3 activeMapped = LinearToSrgb(TonemapAces2(inputColor));
+	vec3 outputColor = mix(direct, core, step(1.0, floor(cellUv.x * 3.0)));
+	outputColor = mix(outputColor, activeMapped, step(2.0, floor(cellUv.x * 3.0)));
+	return mix(vec3(0.008), outputColor, cellMask * bandMask);
+}
+#endif
+
+vec3 FinalCalibrationLinearColor(const in int patchIndex) {
+	#if FOXY_ACES2_CALIBRATION == 1
+		float value = exp2(-6.0 + float(patchIndex) * 1.285714);
+		return vec3(value);
+	#elif FOXY_ACES2_CALIBRATION == 2
+		if (patchIndex == 0) return vec3(0.18);
+		if (patchIndex == 1) return vec3(0.50);
+		if (patchIndex == 2) return vec3(1.0);
+		if (patchIndex == 3) return vec3(4.0);
+		if (patchIndex == 4) return vec3(16.0);
+		if (patchIndex == 5) return vec3(4.0, 0.02, 0.02);
+		if (patchIndex == 6) return vec3(0.02, 4.0, 0.02);
+		return vec3(0.02, 0.02, 4.0);
+	#else
+		if (patchIndex == 0) return vec3(0.01);
+		if (patchIndex == 1) return vec3(0.05);
+		if (patchIndex == 2) return vec3(0.18);
+		if (patchIndex == 3) return vec3(0.50);
+		if (patchIndex == 4) return vec3(1.0);
+		if (patchIndex == 5) return vec3(4.0, 0.02, 0.02);
+		if (patchIndex == 6) return vec3(0.02, 4.0, 0.02);
+		return vec3(0.02, 0.02, 4.0);
+	#endif
+}
+
+vec3 FinalApplyCalibrationChart(
+	const in vec2 uv,
+	const in vec3 sceneColor,
+	const in float autoExposure,
+	const in float nightAdaptation,
+	const in float dayWeight
+) {
+	#if FOXY_ACES2_CALIBRATION == 4 && FOXY_TONEMAPPER == 6
+		return FinalApplyAces2DiagnosticGrid(uv);
+	#endif
+	float chartStart = 0.76;
+	if (uv.y < chartStart) return sceneColor;
+	vec2 chartUv = vec2(uv.x, (uv.y - chartStart) / (1.0 - chartStart));
+	int patchIndex = int(clamp(floor(chartUv.x * 8.0), 0.0, 7.0));
+	vec3 linearPatch = FinalCalibrationLinearColor(patchIndex);
+	vec3 patchColor = LinearToSrgb(TonemapWithExposure(
+		linearPatch,
+		autoExposure,
+		nightAdaptation,
+		dayWeight
+	));
+	float patchEdge = step(0.018, fract(chartUv.x * 8.0)) *
+		step(0.018, 1.0 - fract(chartUv.x * 8.0));
+	float topEdge = step(0.08, chartUv.y);
+	float bottomEdge = step(0.08, 1.0 - chartUv.y);
+	float chartMask = patchEdge * topEdge * bottomEdge;
+	return mix(sceneColor, patchColor, chartMask);
+}
+#endif
 
 float FinalVignette(const in vec2 uv) {
 	vec2 p = uv * (vec2(1.0) - uv);
@@ -492,15 +644,36 @@ void main() {
 		mediumColor = mix(mediumColor, mediumColor + scatterIntegral * 1.85, underwaterGlow);
 		graded = mediumColor;
 	}
-	graded = FinalApplyWhiteBalance(graded);
-	graded = FinalApplyColorGrade(graded);
+	graded = FinalApplyToneBalance(graded);
+	#if FOXY_TONEMAPPER != 6
+		graded = FinalApplyColorGrade(graded);
+	#endif
 	graded *= FinalVignette(texcoord);
-	vec3 mapped = LinearToSrgb(TonemapWithExposure(
+	vec3 mapped = LinearToSrgb(TonemapSceneWithExposure(
 		graded,
 		autoExposure,
 		finalNightAdaptation,
 		PresentationDayWeight(finalSunAltitude)
 	));
+	mapped = FinalApplyToneCalibration(mapped);
+	#if FOXY_TONEMAP_COMPARE_DEBUG == 1
+		vec3 directScene = TonemapSceneInputWithExposure(
+			graded,
+			autoExposure,
+			PresentationDayWeight(finalSunAltitude)
+		);
+		vec3 directMapped = LinearToSrgb(Saturate3(directScene));
+		mapped = mix(directMapped, mapped, step(0.5, texcoord.x));
+	#endif
 	mapped = FinalDither(mapped, presentationDither);
+	#if FOXY_ACES2_CALIBRATION > 0
+		mapped = FinalApplyCalibrationChart(
+			texcoord,
+			mapped,
+			autoExposure,
+			finalNightAdaptation,
+			PresentationDayWeight(finalSunAltitude)
+		);
+	#endif
 	FinalOutput = vec4(Saturate3(mapped), 1.0);
 }

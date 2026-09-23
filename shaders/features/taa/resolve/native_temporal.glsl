@@ -41,12 +41,8 @@ float NativeTemporalReflectionReactive(
 			smoothReflection * reflectionEnabled
 		);
 	#endif
-	vec2 unjitteredMotionUv = reprojection.motionUv;
-	#if FOXY_TEMPORAL_JITTER_ACTIVE == 1
-		unjitteredMotionUv -= (temporalJitter - previousTemporalJitter) * 0.5;
-	#endif
 	float motionPixels = length(
-		unjitteredMotionUv * vec2(textureSize(colortex12, 0))
+		reprojection.motionUv * vec2(textureSize(colortex12, 0))
 	);
 	float cameraMotion = length(cameraPosition - previousCameraPosition);
 	float temporalMotion = max(
@@ -141,6 +137,51 @@ float NativeHistoryGeometryConfidence(
 	return max(max(support.x, support.y), max(support.z, support.w));
 }
 
+// Streaming reduction keeps each neighbor alive only until it contributes.
+// The visit order matches the reference's left-associated luma sum.
+struct NativeNeighborhood {
+	vec3 colorMinimum;
+	vec3 colorMaximum;
+	float lumaMinimum;
+	float lumaMaximum;
+	float lumaSum;
+};
+
+void NativeAccumulateNeighbor(
+	const in ivec2 texel, const in ivec2 size, inout NativeNeighborhood bounds
+) {
+	vec3 linearColor = NativeCurrentLinear(texel, size);
+	float luma = Luma(linearColor);
+	vec3 compressed = linearColor / (1.0 + luma);
+	bounds.colorMinimum = min(bounds.colorMinimum, compressed);
+	bounds.colorMaximum = max(bounds.colorMaximum, compressed);
+	bounds.lumaMinimum = min(bounds.lumaMinimum, luma);
+	bounds.lumaMaximum = max(bounds.lumaMaximum, luma);
+	bounds.lumaSum += luma;
+}
+
+NativeNeighborhood NativeGatherNeighborhood(
+	const in ivec2 center, const in ivec2 size, const in vec3 centerLinear
+) {
+	float luma = Luma(centerLinear);
+	vec3 compressed = centerLinear / (1.0 + luma);
+	NativeNeighborhood bounds;
+	bounds.colorMinimum = compressed;
+	bounds.colorMaximum = compressed;
+	bounds.lumaMinimum = luma;
+	bounds.lumaMaximum = luma;
+	bounds.lumaSum = luma;
+	NativeAccumulateNeighbor(center + ivec2(-1, -1), size, bounds);
+	NativeAccumulateNeighbor(center + ivec2( 0, -1), size, bounds);
+	NativeAccumulateNeighbor(center + ivec2( 1, -1), size, bounds);
+	NativeAccumulateNeighbor(center + ivec2(-1,  0), size, bounds);
+	NativeAccumulateNeighbor(center + ivec2( 1,  0), size, bounds);
+	NativeAccumulateNeighbor(center + ivec2(-1,  1), size, bounds);
+	NativeAccumulateNeighbor(center + ivec2( 0,  1), size, bounds);
+	NativeAccumulateNeighbor(center + ivec2( 1,  1), size, bounds);
+	return bounds;
+}
+
 vec3 ResolveTemporalWorldEncoded(
 	const in vec2 viewUv,
 	const in vec3 currentWorldEncoded
@@ -153,53 +194,47 @@ vec3 ResolveTemporalWorldEncoded(
 		pixel * 0.5,
 		vec2(1.0) - pixel * 0.5
 	);
-	ivec2 centerTexel;
-	vec3 linear0;
-	vec3 linear1;
-	vec3 linear2;
-	vec3 linear3;
-	vec3 linear4;
-	vec3 linear5;
-	vec3 linear6;
-	vec3 linear7;
-	vec3 linear8;
-	vec3 reconstructedCurrent;
-
+	ivec2 centerTexel = clamp(
+		ivec2(currentRasterUv * vec2(sceneSize)),
+		ivec2(0),
+		sceneSize - ivec2(1)
+	);
+	#if FOXY_TAA_STREAM_NEIGHBORHOOD == 1 && FOXY_TAAU_ACTIVE == 0
+		vec3 currentLinear = NativeCurrentLinear(centerTexel, sceneSize);
+		vec3 currentCompressed = NativeCompress(currentLinear);
+		NativeNeighborhood bounds = NativeGatherNeighborhood(centerTexel, sceneSize, currentLinear);
+		float meanLinear = bounds.lumaSum / 9.0;
+		float neighborhoodMinimum = bounds.lumaMinimum / (1.0 + bounds.lumaMinimum);
+		float neighborhoodMaximum = bounds.lumaMaximum / (1.0 + bounds.lumaMaximum);
+		float neighborhoodMean = meanLinear / (1.0 + meanLinear);
+		vec3 neighborhoodColorMinimum = bounds.colorMinimum;
+		vec3 neighborhoodColorMaximum = bounds.colorMaximum;
+	#else
+	vec3 linear0 = NativeCurrentLinear(centerTexel, sceneSize);
+	vec3 linear1 = NativeCurrentLinear(centerTexel + ivec2(-1, -1), sceneSize);
+	vec3 linear2 = NativeCurrentLinear(centerTexel + ivec2( 0, -1), sceneSize);
+	vec3 linear3 = NativeCurrentLinear(centerTexel + ivec2( 1, -1), sceneSize);
+	vec3 linear4 = NativeCurrentLinear(centerTexel + ivec2(-1,  0), sceneSize);
+	vec3 linear5 = NativeCurrentLinear(centerTexel + ivec2( 1,  0), sceneSize);
+	vec3 linear6 = NativeCurrentLinear(centerTexel + ivec2(-1,  1), sceneSize);
+	vec3 linear7 = NativeCurrentLinear(centerTexel + ivec2( 0,  1), sceneSize);
+	vec3 linear8 = NativeCurrentLinear(centerTexel + ivec2( 1,  1), sceneSize);
+	vec3 reconstructedCurrent = linear0;
 	#if FOXY_TAAU_ACTIVE == 1
-		vec2 sourcePosition = currentRasterUv * vec2(sceneSize) - vec2(0.5);
-		ivec2 sourceBase = ivec2(floor(sourcePosition));
-		vec2 sourceFraction = fract(sourcePosition);
-		centerTexel = sourceBase;
-		linear0 = NativeCurrentLinear(sourceBase + ivec2( 0,  0), sceneSize);
-		linear1 = NativeCurrentLinear(sourceBase + ivec2( 1,  0), sceneSize);
-		linear2 = NativeCurrentLinear(sourceBase + ivec2( 0,  1), sceneSize);
-		linear3 = NativeCurrentLinear(sourceBase + ivec2( 1,  1), sceneSize);
-		linear4 = NativeCurrentLinear(sourceBase + ivec2(-1, -1), sceneSize);
-		linear5 = NativeCurrentLinear(sourceBase + ivec2( 0, -1), sceneSize);
-		linear6 = NativeCurrentLinear(sourceBase + ivec2( 1, -1), sceneSize);
-		linear7 = NativeCurrentLinear(sourceBase + ivec2(-1,  0), sceneSize);
-		linear8 = NativeCurrentLinear(sourceBase + ivec2(-1,  1), sceneSize);
+		// Reuse the centered neighborhood for bilinear reconstruction in any quadrant.
+		vec2 sourceOffset = currentRasterUv * vec2(sceneSize) -
+			(vec2(centerTexel) + vec2(0.5));
+		vec2 sourceFraction = abs(sourceOffset);
+		vec3 horizontal = sourceOffset.x < 0.0 ? linear4 : linear5;
+		vec3 vertical = sourceOffset.y < 0.0 ? linear2 : linear7;
+		vec3 diagonal = sourceOffset.y < 0.0
+			? (sourceOffset.x < 0.0 ? linear1 : linear3)
+			: (sourceOffset.x < 0.0 ? linear6 : linear8);
 		reconstructedCurrent = mix(
-			mix(linear0, linear1, sourceFraction.x),
-			mix(linear2, linear3, sourceFraction.x),
+			mix(linear0, horizontal, sourceFraction.x),
+			mix(vertical, diagonal, sourceFraction.x),
 			sourceFraction.y
 		);
-	#else
-		centerTexel = clamp(
-			ivec2(currentRasterUv * vec2(sceneSize)),
-			ivec2(0),
-			sceneSize - ivec2(1)
-		);
-		linear0 = NativeCurrentLinear(centerTexel, sceneSize);
-		linear1 = NativeCurrentLinear(centerTexel + ivec2(-1, -1), sceneSize);
-		linear2 = NativeCurrentLinear(centerTexel + ivec2( 0, -1), sceneSize);
-		linear3 = NativeCurrentLinear(centerTexel + ivec2( 1, -1), sceneSize);
-		linear4 = NativeCurrentLinear(centerTexel + ivec2(-1,  0), sceneSize);
-		linear5 = NativeCurrentLinear(centerTexel + ivec2( 1,  0), sceneSize);
-		linear6 = NativeCurrentLinear(centerTexel + ivec2(-1,  1), sceneSize);
-		linear7 = NativeCurrentLinear(centerTexel + ivec2( 0,  1), sceneSize);
-		linear8 = NativeCurrentLinear(centerTexel + ivec2( 1,  1), sceneSize);
-		reconstructedCurrent = linear0;
 	#endif
 
 	vec3 currentCompressed = NativeCompress(reconstructedCurrent);
@@ -231,32 +266,35 @@ vec3 ResolveTemporalWorldEncoded(
 	float neighborhoodMean = neighborhoodMeanLinear /
 		(1.0 + neighborhoodMeanLinear);
 
-	TaaSlotReprojection reprojection = TaaSlotBuildReprojection(currentRasterUv);
+	vec3 compressed0 = linear0 / (1.0 + luma0);
+	vec3 compressed1 = linear1 / (1.0 + luma1);
+	vec3 compressed2 = linear2 / (1.0 + luma2);
+	vec3 compressed3 = linear3 / (1.0 + luma3);
+	vec3 compressed4 = linear4 / (1.0 + luma4);
+	vec3 compressed5 = linear5 / (1.0 + luma5);
+	vec3 compressed6 = linear6 / (1.0 + luma6);
+	vec3 compressed7 = linear7 / (1.0 + luma7);
+	vec3 compressed8 = linear8 / (1.0 + luma8);
+	vec3 neighborhoodColorMinimum = min(
+		min(min(compressed0, compressed1), min(compressed2, compressed3)),
+		min(min(compressed4, compressed5), min(compressed6, min(compressed7, compressed8)))
+	);
+	vec3 neighborhoodColorMaximum = max(
+		max(max(compressed0, compressed1), max(compressed2, compressed3)),
+		max(max(compressed4, compressed5), max(compressed6, max(compressed7, compressed8)))
+	);
+
+	#endif
+
+	TaaSlotReprojection reprojection = TaaSlotBuildReprojection(currentRasterUv, viewUv);
 	vec3 historyCompressed = max(
 		NativeHistoryCubic(reprojection.previousUv),
 		vec3(0.0)
 	);
-	float currentLuma = Luma(currentCompressed);
-	float historyLuma = Luma(historyCompressed);
-	float boundedHistoryLuma = clamp(
-		historyLuma,
-		neighborhoodMinimum,
-		neighborhoodMaximum
-	);
-	vec3 currentChroma = currentCompressed - vec3(currentLuma);
-	vec3 historyChroma = historyCompressed - vec3(historyLuma);
-	vec3 chromaDifference = historyChroma - currentChroma;
-	float chromaDistance = max(
-		abs(chromaDifference.x),
-		max(abs(chromaDifference.y), abs(chromaDifference.z))
-	);
-	chromaDifference *= min(
-		1.0,
-		FOXY_TAA_CHROMA_LIMIT / max(chromaDistance, 1.0e-5)
-	);
-	vec3 boundedHistory = max(
-		vec3(boundedHistoryLuma) + currentChroma + chromaDifference,
-		vec3(0.0)
+	vec3 boundedHistory = clamp(
+		historyCompressed,
+		neighborhoodColorMinimum,
+		neighborhoodColorMaximum
 	);
 
 	float geometryConfidence = NativeHistoryGeometryConfidence(
@@ -288,8 +326,8 @@ vec3 ResolveTemporalWorldEncoded(
 		historyWeight
 	);
 
-float resolvedLuma = Luma(resolvedCompressed);
-	float positiveDetail = max(currentLuma - neighborhoodMean, 0.0);
+	float resolvedLuma = Luma(resolvedCompressed);
+	float positiveDetail = max(resolvedLuma - neighborhoodMean, 0.0);
 	float displayLuma = clamp(
 		resolvedLuma + positiveDetail * FOXY_TAA_SHARPEN,
 		neighborhoodMinimum,
@@ -305,6 +343,7 @@ float resolvedLuma = Luma(resolvedCompressed);
 		resolvedCompressed,
 		TaaSlotPackHistoryMetric(reprojection.currentMetric)
 	);
+
 	return EncodeSceneColor(max(displayLinear, vec3(0.0)));
 }
 

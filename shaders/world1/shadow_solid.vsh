@@ -1,7 +1,13 @@
 #version 430 compatibility
+#define FOXY_DIM_END
 #include "/lib/settings.glsl"
+#include "/lib/sable.glsl"
+uniform mat4 gbufferModelView;
 #include "/lib/math.glsl"
 #include "/lib/shadow.glsl"
+
+uniform mat4 shadowModelViewInverse;
+uniform mat4 shadowModelView;
 
 #if FOXY_VOXEL_ACTIVE == 1
 #define FOXY_VOXEL_BUFFER_WRITE
@@ -16,12 +22,14 @@ attribute vec4 at_midBlock;
 attribute vec4 mc_Entity;
 attribute vec2 mc_midTexCoord;
 
-uniform mat4 shadowModelViewInverse;
 uniform vec3 cameraPosition;
 #endif
 
 void main() {
-	vec4 clip = ftransform();
+	bool sableSubLevel = SableSubLevelDraw(gl_ModelViewMatrix, gbufferModelView, shadowModelView);
+	vec3 playerPos = (shadowModelViewInverse * (gl_ModelViewMatrix * gl_Vertex)).xyz;
+	vec3 aimedPlayerPos = FoEndShadowAim(shadowModelViewInverse) * playerPos;
+	vec4 clip = FoEndShadowProjection(gl_ProjectionMatrix) * (shadowModelView * vec4(aimedPlayerPos, 1.0));
 	clip.xy = ShadowWarp(clip.xy / clip.w) * clip.w;
 	gl_Position = clip;
 
@@ -39,15 +47,15 @@ void main() {
 		vec2 texcoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
 		vec2 spriteCenterUv = (gl_TextureMatrix[0] * vec4(mc_midTexCoord, 0.0, 1.0)).xy;
 		vec3 materialNormal = normalize(mat3(shadowModelViewInverse) * gl_NormalMatrix * gl_Normal);
-	if (storedMaterialId >= FOXY_VOXEL_CUSTOM_MATERIAL_BASE) VoxelMaterialColorStore(ivec3(floor(VoxelGridSceneToGrid(scenePos, cameraPosition))), storedMaterialId, VoxelEncodeAxisNormal(materialNormal), spriteCenterUv, texcoord);
+	if (storedMaterialId >= FOXY_VOXEL_CUSTOM_MATERIAL_BASE) if (!sableSubLevel) VoxelMaterialColorStore(ivec3(floor(VoxelGridSceneToGrid(scenePos, cameraPosition))), storedMaterialId, VoxelEncodeAxisNormal(materialNormal), spriteCenterUv, texcoord);
 	#endif
 	VoxelGridStoreScene(
 		scenePos,
 		cameraPosition,
 		materialId,
 		sceneNormal,
-		at_midBlock.w,
-		lightmapUv
+		BlockEmissionLevel(mc_Entity.x, at_midBlock),
+		lightmapUv, sableSubLevel
 	);
 #endif
 }

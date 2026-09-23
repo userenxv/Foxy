@@ -1,4 +1,4 @@
-#version 120
+#version 430 compatibility
 #extension GL_ARB_shader_texture_lod : enable
 #define TERRAIN
 #define SOLID_TERRAIN

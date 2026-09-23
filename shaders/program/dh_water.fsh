@@ -21,7 +21,6 @@ uniform vec3 moonPosition;
 uniform vec3 shadowLightPosition;
 uniform vec3 upPosition;
 uniform vec3 cameraPosition;
-uniform float frameTimeCounter;
 uniform float rainStrength;
 uniform float far;
 uniform float viewWidth;
@@ -40,14 +39,21 @@ flat in float dhIsWater;
 void main() {
 	vec2 sceneResourceUv = gl_FragCoord.xy / vec2(viewWidth, viewHeight);
 	vec2 viewUv = SrViewUvFromSceneResourceUv(sceneResourceUv);
+	float dhWaterViewDepth = max(-dhWaterViewPos.z, 0.0);
 	float mainDepthRaw = texture2D(depthtex0, sceneResourceUv).r;
 	if (mainDepthRaw < 0.99999) {
 		vec4 mainClip = vec4(viewUv * 2.0 - 1.0, mainDepthRaw * 2.0 - 1.0, 1.0);
 		vec4 mainViewHomogeneous = gbufferProjectionInverse * mainClip;
 		float mainViewW = abs(mainViewHomogeneous.w) < 1.0e-6 ? 1.0e-6 : mainViewHomogeneous.w;
 		float mainViewDepth = -(mainViewHomogeneous.z / mainViewW);
-		float dhWaterViewDepth = max(-dhWaterViewPos.z, 0.0);
 		if (mainViewDepth <= dhWaterViewDepth + 0.25) {
+			discard;
+		}
+	}
+	float lodBackRaw = BackendLodSolidRaw(sceneResourceUv);
+	if (BackendHasLodSurface(lodBackRaw)) {
+		float lodBackViewDepth = max(-BackendLodViewPosition(viewUv, lodBackRaw).z, 0.0);
+		if (lodBackViewDepth < dhWaterViewDepth) {
 			discard;
 		}
 	}
@@ -130,6 +136,7 @@ vec3 sunGlint = WaterSunGlint(
 				normalView,
 				-incidentView,
 				sunView,
+				max(sunAltitude, 0.0),
 				directSunLightColor,
 				1.0,
 				skyLight,

@@ -2,6 +2,7 @@
 #define FOXY_WIND_GLSL
 
 #include "/lib/math.glsl"
+#include "/lib/weather.glsl"
 
 float WindIdInRange(const in float id, const in float firstId, const in float lastId) {
 	return step(firstId - 0.5, id) * step(id, lastId + 0.5);
@@ -15,14 +16,17 @@ vec3 WindDisplacement(
 	const in float time,
 	const in float rain
 ) {
-	float leaves = WindIdInRange(materialId, 10100.0, 10100.0);
+	float leaves = max(
+		WindIdInRange(materialId, 10100.0, 10100.0),
+		WindIdInRange(materialId, 12000.0, 12000.0)
+	);
 	float shortPlant = WindIdInRange(materialId, 10101.0, 10102.0);
 	float tallTop = WindIdInRange(materialId, 10103.0, 10103.0);
 	if (max(leaves, max(shortPlant, tallTop)) < 0.5) {
 		return vec3(0.0);
 	}
 
-	float weather = Saturate(rain);
+	float weather = max(Saturate(rain), WeatherGaleAmount() * 0.75);
 	float exposure = Saturate(skyLight);
 	exposure *= exposure;
 
@@ -48,7 +52,10 @@ float calmTime = time * 1.40;
 	vec2 horizontal = windDir * (broad * 0.72 + fine * 0.16);
 	horizontal += vec2(-windDir.y, windDir.x) * fine * 0.10;
 	float lift = (broad * 0.10 + fine * 0.045) * (leaves + max(shortPlant, tallTop) * topVertex);
-	return vec3(horizontal.x, lift, horizontal.y) * amplitude * vertexWeight;
+	float plantAnchorWeight = shortPlant * plantAnchor + tallTop * upperAnchor;
+	float lean = WeatherGaleAmount() * FOXY_WEATHER_GALE_LEAN * plantAnchorWeight;
+	vec3 sway = vec3(horizontal.x, lift, horizontal.y) * amplitude * vertexWeight;
+	return sway - vec3(windDir.x, 0.0, windDir.y) * lean;
 }
 
 #endif

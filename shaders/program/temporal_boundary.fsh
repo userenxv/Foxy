@@ -21,9 +21,6 @@ uniform float viewWidth;
 uniform float viewHeight;
 uniform int frameCounter;
 uniform vec2 temporalJitter;
-#if FOXY_TAA_ENABLED == 1
-uniform vec2 previousTemporalJitter;
-#endif
 
 varying vec2 texcoord;
 

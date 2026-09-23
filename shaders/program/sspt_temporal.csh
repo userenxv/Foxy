@@ -291,6 +291,51 @@ void SsptTemporalPreload(const in ivec2 traceSize) {
 	}
 	memoryBarrierShared();
 	barrier();
+	#if FOXY_VOXEL_TRACING == 1
+		for (int tileIndex = localIndex; tileIndex < SSPT_TEMPORAL_TILE_AREA; tileIndex += SSPT_TEMPORAL_GROUP_SIZE * SSPT_TEMPORAL_GROUP_SIZE) {
+			ivec2 tilePixel = ivec2(tileIndex % SSPT_TEMPORAL_TILE_SIDE, tileIndex / SSPT_TEMPORAL_TILE_SIDE);
+			if (SsptTemporalTracePixelSampled(groupBase + tilePixel)) continue;
+			vec4 centerGuide = ssptCurrentGuide[tileIndex];
+			vec3 centerNormal = PtDecodeOctNormal(centerGuide.xy);
+			float centerClass = floor(ssptCurrentMaterialAux[tileIndex].x + 0.5);
+			vec3 radianceSum = vec3(0.0);
+			float weightSum = 0.0;
+			for (int offsetY = -1; offsetY <= 1; ++offsetY) {
+				for (int offsetX = -1; offsetX <= 1; ++offsetX) {
+					ivec2 neighbourPixel = tilePixel + ivec2(offsetX, offsetY);
+					if (any(lessThan(neighbourPixel, ivec2(0))) || any(greaterThanEqual(neighbourPixel, ivec2(SSPT_TEMPORAL_TILE_SIDE)))) continue;
+					if (!SsptTemporalTracePixelSampled(groupBase + neighbourPixel)) continue;
+					int neighbourIndex = SsptTemporalSharedIndex(neighbourPixel);
+					if (ssptCurrentMaterialAux[neighbourIndex].w < 0.5) continue;
+					vec4 neighbourGuide = ssptCurrentGuide[neighbourIndex];
+					float depthWeight = RtDenoiserRelativeDepthWeight(
+						centerGuide.z,
+						neighbourGuide.z,
+						0.004,
+						0.032
+					);
+					float normalWeight = RtDenoiserNormalWeight(
+						centerNormal,
+						PtDecodeOctNormal(neighbourGuide.xy)
+					);
+					float classWeight = RtDenoiserSurfaceClassWeight(
+						centerClass,
+						floor(ssptCurrentMaterialAux[neighbourIndex].x + 0.5)
+					);
+					float weight = depthWeight * normalWeight * classWeight;
+					if (weight <= 1.0e-4) continue;
+					radianceSum += max(ssptCurrentSignal[neighbourIndex].rgb, vec3(0.0)) * weight;
+					weightSum += weight;
+				}
+			}
+			if (weightSum > 1.0e-4) {
+				vec3 estimate = radianceSum / weightSum;
+				ssptCurrentSignal[tileIndex] = vec4(estimate, RtDenoiserLuma(estimate));
+			}
+		}
+		memoryBarrierShared();
+		barrier();
+	#endif
 }
 
 float SsptTemporalPreviousUv(
@@ -902,13 +947,66 @@ void main() {
 			previousMoments.y - previousMoments.x * previousMoments.x,
 			0.0
 		));
+	} else {
+		float referenceSum = 0.0;
+		float referenceSumSquares = 0.0;
+		float referenceMinimum = 0.0;
+		float referenceMaximum = 0.0;
+		float referenceCount = 0.0;
+		for (int referenceY = -1; referenceY <= 1; ++referenceY) {
+			for (int referenceX = -1; referenceX <= 1; ++referenceX) {
+				int referenceIndex = SsptTemporalSharedIndex(
+					centerLocalPixel + ivec2(referenceX, referenceY)
+				);
+				if (ssptCurrentMaterialAux[referenceIndex].w < 0.5) continue;
+				vec4 referenceGuide = ssptCurrentGuide[referenceIndex];
+				float referenceDepthWeight = RtDenoiserRelativeDepthWeight(
+					currentDepth, referenceGuide.z, 0.004, 0.032
+				);
+				float referenceNormalWeight = RtDenoiserNormalWeight(
+					currentNormal, PtDecodeOctNormal(referenceGuide.xy)
+				);
+				float referenceClassWeight = RtDenoiserSurfaceClassWeight(
+					currentSurfaceClass,
+					floor(ssptCurrentMaterialAux[referenceIndex].x + 0.5)
+				);
+				if (referenceDepthWeight * referenceNormalWeight * referenceClassWeight <= 1.0e-4) continue;
+				float referenceSample = RtDenoiserLuma(
+					max(ssptCurrentSignal[referenceIndex].rgb, vec3(0.0))
+				);
+				if (referenceCount < 0.5) {
+					referenceMinimum = referenceSample;
+					referenceMaximum = referenceSample;
+				} else {
+					referenceMinimum = min(referenceMinimum, referenceSample);
+					referenceMaximum = max(referenceMaximum, referenceSample);
+				}
+				referenceSum += referenceSample;
+				referenceSumSquares += referenceSample * referenceSample;
+				referenceCount += 1.0;
+			}
+		}
+		if (referenceCount > 2.5) {
+			referenceLuminance = (referenceSum - referenceMinimum - referenceMaximum) /
+				(referenceCount - 2.0);
+			referenceStandardDeviation = sqrt(max(
+				referenceSumSquares / referenceCount -
+					referenceLuminance * referenceLuminance,
+				0.0
+			));
+		} else if (referenceCount > 0.5) {
+			referenceLuminance = referenceSum / referenceCount;
+		}
 	}
 	#if FOXY_VOXEL_GI_ACTIVE == 0 || FOXY_IRC_MODE == 0
+		#if FOXY_VOXEL_TRACING == 1
+		#else
 		if (currentSampled < 0.5 && historyAccepted < 0.5) {
 			SsptTemporalStore(tracePixel, vec4(0.0), vec4(0.0), vec4(0.0));
 			imageStore(img_ptFilteredA, tracePixel, vec4(0.0));
 			return;
 		}
+		#endif
 	#endif
 
 	#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_IRC_MODE == 1
@@ -933,17 +1031,12 @@ void main() {
 				ircOnlyDomainWeight,
 				ircOnlyConfidence
 			) * SsptTemporalIrcStorageScale();
-			float ircOnlyValid = clamp(
-				ircOnlyDomainWeight * step(0.02, ircOnlyConfidence),
-				0.0,
-				1.0
-			);
 
 			ircOnlyRadiance = ircOnlyEstimate;
 		#endif
 		imageStore(img_ptFilteredA, tracePixel, vec4(
 			min(max(ircOnlyRadiance, vec3(0.0)), vec3(64.0)),
-			ircOnlyValid
+			ircOnlyDomainWeight * step(0.02, ircOnlyConfidence)
 		));
 		return;
 	#endif
@@ -1110,6 +1203,11 @@ coldStartFallback = bootstrapRadiance;
 					cameraPosition
 				);
 				coldStartFallback *= 1.0 - coldStartDomainWeight;
+				coldStartVisibility = mix(
+					coldStartVisibility,
+					1.0,
+					coldStartDomainWeight
+				);
 			#endif
 			float fallbackLuma = RtDenoiserLuma(coldStartFallback);
 			float inverseColdVisibility = 1.0 - coldStartVisibility;
@@ -1131,11 +1229,6 @@ coldStartFallback = bootstrapRadiance;
 			);
 		}
 	#else
-		bootstrapRadiance *= coldStartVisibility;
-		bootstrapMoments *= vec2(
-			coldStartVisibility,
-			coldStartVisibility * coldStartVisibility
-		);
 	#endif
 	#if FOXY_IRRADIANCE_CACHE_ACTIVE == 1
 		float cacheHandoffAge = max(

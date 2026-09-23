@@ -1,3 +1,4 @@
+#define FOXY_FRAME_WEATHER_READER
 #include "/lib/settings.glsl"
 #include "/lib/math.glsl"
 #include "/lib/sky.glsl"
@@ -5,9 +6,15 @@
 #include "/lib/celestial.glsl"
 #include "/lib/water.glsl"
 #include "/lib/dimension_sky.glsl"
+#include "/lib/blackhole.glsl"
 #include "/lib/nasa_galaxy.glsl"
 #include "/lib/vanilla_moon.glsl"
 uniform int frameCounter;
+#define FOXY_READ_ONLY_OPAQUE_ENDPOINT_CURRENT
+#define FOXY_READ_ONLY_LAYER_ENDPOINT_PING_PONG
+#define FOXY_READ_ONLY_MAIN_WATER_PRODUCER_CURRENT
+#define FOXY_READ_ONLY_LOD_WATER_PRODUCER_CURRENT
+#define FOXY_READ_ONLY_CLOUD_LAYER_CURRENT
 #define FOXY_IMAGE_OPAQUE_ENDPOINT_CURRENT
 #define FOXY_IMAGE_LAYER_ENDPOINT_PING_PONG
 #define FOXY_IMAGE_WATER_SEGMENT_CURRENT
@@ -27,6 +34,7 @@ uniform sampler2D depthtex1;
 uniform sampler2D shadowtex0;
 #if FOXY_MATERIAL_REFLECTIONS == 1 && FOXY_MATERIAL_REFLECTION_GLOBAL == 1 && FOXY_VOXEL_GI_ACTIVE == 1
 uniform sampler2DShadow shadowtex1;
+uniform sampler2D shadowcolor0;
 #endif
 #if FOXY_MATERIAL_REFLECTIONS == 1
 uniform sampler3D cloudStbnVec2;
@@ -50,7 +58,6 @@ uniform float near;
 uniform float far;
 uniform float viewWidth;
 uniform float viewHeight;
-uniform float frameTimeCounter;
 uniform int isEyeInWater;
 uniform vec2 temporalJitter;
 uniform vec2 previousTemporalJitter;
@@ -66,13 +73,14 @@ varying float vertexSunAltitude;
 varying float vertexMoonAltitude;
 
 #include "/lib/sr.glsl"
+#include "/lib/blackhole_sky.glsl"
 
 #include "/lib/contracts/images.glsl"
 #include "/lib/contracts/material.glsl"
 #if FOXY_DIRECT_SHADOW_BRIDGE_ACTIVE == 1
 	#include "/lib/contracts/direct_shadow.glsl"
 #endif
-#if FOXY_PT_GBUFFER_ACTIVE == 1 || defined(VOXY)
+#if FOXY_PT_GBUFFER_ACTIVE == 1 || FOXY_DH_ACTIVE == 1
 	#define PT_GBUFFER_READ
 	#include "/lib/pt_gbuffer.glsl"
 	#undef PT_GBUFFER_READ
@@ -85,11 +93,9 @@ varying float vertexMoonAltitude;
 	#if FOXY_MATERIAL_REFLECTIONS == 1 && FOXY_MATERIAL_REFLECTION_GLOBAL == 1
 		#define FOXY_MATERIAL_REFLECTION_GLOBAL_DIRECT_LIGHT
 	#endif
-	#define FOXY_SSPT_TRACE_EXTERNAL_UNIFORMS
 	#define FOXY_SSPT_TRACE_LIBRARY_ONLY
-	#include "/program/sspt_trace.csh"
+	#include "/features/ray/trace_lighting.glsl"
 	#undef FOXY_SSPT_TRACE_LIBRARY_ONLY
-	#undef FOXY_SSPT_TRACE_EXTERNAL_UNIFORMS
 	#if FOXY_MATERIAL_REFLECTIONS == 1 && FOXY_MATERIAL_REFLECTION_GLOBAL == 1
 		#undef FOXY_MATERIAL_REFLECTION_GLOBAL_DIRECT_LIGHT
 	#endif
@@ -116,15 +122,33 @@ vec2 RenderPixelCenter(const in vec2 uv) {
 	return SrSceneResourcePixelCenter(uv);
 }
 
-vec3 DimensionBackground(const in vec2 viewUv) {
+#if !defined(FOXY_DIM_NETHER) && !defined(FOXY_DIM_END)
+vec3 GalaxyAt(const in vec3 dir, const in float sunAltitude) {
+	#if FOXY_NASA_GALAXY == 1
+		return NasaGalaxyRadiance(dir, sunAltitude, rainStrength, worldTime);
+	#else
+		return vec3(0.0);
+	#endif
+}
+#endif
+
+vec3 BackgroundWorldDirection(const in vec2 viewUv) {
 	vec2 ndc = viewUv * 2.0 - 1.0;
 	vec4 view = gbufferProjectionInverse * vec4(ndc, 1.0, 1.0);
 	vec3 viewDirection = normalize(view.xyz / SafeDivisor(view.w));
-	vec3 worldDirection = normalize(mat3(gbufferModelViewInverse) * viewDirection);
+	return normalize(mat3(gbufferModelViewInverse) * viewDirection);
+}
+
+vec3 DimensionBackground(const in vec2 viewUv) {
+	vec3 worldDirection = BackgroundWorldDirection(viewUv);
 	#if defined(FOXY_DIM_NETHER)
 		return NetherEnvironment(worldDirection);
 	#elif defined(FOXY_DIM_END)
+	#if FOXY_BLACKHOLE_SKY == 1
+		return BlackHoleBackground(worldDirection, frameTimeCounter, cameraPosition);
+	#else
 		return EndEnvironment(worldDirection, frameTimeCounter);
+	#endif
 	#else
 		return vec3(0.0);
 	#endif
@@ -331,8 +355,13 @@ float WaterProducerValidAtViewUv(const in vec2 viewUv) {
 #include "/features/water/reflection/resolve.glsl"
 #include "/features/water/reflection/fallback.glsl"
 #include "/features/water/transmission/surface.glsl"
+#include "/features/water/transmission/resolve.glsl"
 #include "/features/material/reflection.glsl"
 
+
+// Six fixed screen-space steps, no refinement and no history.  This is the
+// cheap glass reflection that runs when material reflection is switched off;
+// the shared material path is what replaces it when the switch is on.
 vec4 TraceGlassReflection(const in vec3 viewPos, const in vec3 reflectedDir) {
 	vec3 startView = viewPos + reflectedDir * 0.065;
 	float rayLength = clamp(max(-viewPos.z * 1.25, 12.0), 12.0, 64.0);
@@ -378,6 +407,7 @@ vec4 TraceGlassReflection(const in vec3 viewPos, const in vec3 reflectedDir) {
 	}
 	return vec4(texcoord, 0.0, 0.0);
 }
+
 
 vec3 ApplyLightweightGlass(
 	const in vec3 sceneColor,
@@ -434,6 +464,11 @@ vec3 ApplyLightweightGlass(
 	vec3 reflectedViewDir = normalize(reflect(incidentView, normalView));
 	float grazing = 1.0 - normalViewDot;
 	float fresnel = 0.04 + 0.96 * grazing * grazing * grazing * grazing * grazing;
+	// Lightweight glass reflection, used whenever material reflection is off.
+	// It is a sky LUT lookup plus a fixed 6-step, refinement-free screen trace
+	// against the scene depth, so it costs a fraction of the shared material
+	// path and needs no signal buffer, filter chain or reflection history.
+	// The sun/moon specular lobes below are unrelated to it and always run.
 	vec3 reflectionColor = transmittedColor;
 	if (includeReflection) {
 		vec3 reflectedWorldDir = normalize(mat3(gbufferModelViewInverse) * reflectedViewDir);
@@ -540,8 +575,50 @@ float ShadowCasterBoundaryTravel(
 float VoxelCasterVisibility(
 	const in vec3 receiverPlayerPosition,
 	const in vec3 receiverWorldNormal,
-	const in vec3 lightWorldDirection
+	const in vec3 lightWorldDirection,
+	const in float nativeVisibility
 ) {
+#if FOXY_VOXEL_DDA_HARD_SHADOW == 1
+	vec3 hardOrigin = VoxelGridSceneToGrid(
+		receiverPlayerPosition,
+		cameraPosition
+	) + receiverWorldNormal * 0.035 + lightWorldDirection * 0.035;
+	if (!VoxelGridInside(hardOrigin)) return 1.0;
+
+	uint hardPayload;
+	float hardHitDistance;
+	ivec3 hardHitCell;
+	vec3 hardHitNormal;
+	vec3 hardSphereRadiance;
+	vec3 hardRayTransmittance;
+	int hardTraceResult = VoxelGiTrace(
+		hardOrigin,
+		lightWorldDirection,
+		1.0e20,
+		FOXY_VOXEL_GI_TRACE_ITERATIONS,
+		false,
+		true,
+		hardPayload,
+		hardHitDistance,
+		hardHitCell,
+		hardHitNormal,
+		hardSphereRadiance,
+		hardRayTransmittance
+	);
+	vec3 hardFaceDistance = min(
+		hardOrigin,
+		vec3(float(FOXY_VOXEL_GRID_SIZE)) - hardOrigin
+	);
+	float gridEdgeFade = smoothstep(
+		0.0,
+		8.0,
+		min(hardFaceDistance.x, min(hardFaceDistance.y, hardFaceDistance.z))
+	);
+	if (hardTraceResult == FOXY_VOXEL_GI_TRACE_SURFACE_HIT) {
+		return mix(nativeVisibility, 0.0, gridEdgeFade);
+	}
+	return 1.0;
+#else
 	vec3 traceOrigin = VoxelGridSceneToGrid(
 		receiverPlayerPosition,
 		cameraPosition
@@ -558,11 +635,11 @@ float phase = ShadowTemporalPhase(gl_FragCoord.xy, frameCounter);
 	vec3 filterDirection = filterTangent * diskSample.x +
 		filterBitangent * diskSample.y;
 
-	vec4 shadowClip = shadowProjection * shadowModelView *
-		vec4(receiverPlayerPosition, 1.0);
+	vec4 shadowClip = FoEndShadowProjection(shadowProjection) * shadowModelView *
+		vec4(FoEndShadowAimFromView(shadowModelView) * receiverPlayerPosition, 1.0);
 	vec2 shadowClipXY = shadowClip.xy / SafeDivisor(shadowClip.w);
 	float projectionScale = max(abs(shadowProjection[0][0]), 1.0e-6);
-	float shadowWorldTexel = 2.0 * max(ShadowWarpFactor(shadowClipXY), 0.18) /
+	float shadowWorldTexel = 2.0 * max(ShadowWarpFactor(shadowClipXY), SHADOW_WARP_MIN_FACTOR) /
 		(float(FOXY_SHADOW_RESOLUTION) * projectionScale);
 	float minimumFilterRadius = shadowWorldTexel *
 		(0.5 + SHADOW_MIN_FILTER_TEXELS);
@@ -591,6 +668,7 @@ float phase = ShadowTemporalPhase(gl_FragCoord.xy, frameCounter);
 		0.5,
 		7,
 		false,
+		true, // Foliage coverage is already resolved by the native soft shadow.
 		hitPayload,
 		hitDistance,
 		hitCell,
@@ -599,6 +677,7 @@ float phase = ShadowTemporalPhase(gl_FragCoord.xy, frameCounter);
 		rayTransmittance
 	);
 	return traceResult == FOXY_VOXEL_GI_TRACE_SURFACE_HIT ? 0.0 : 1.0;
+#endif
 }
 #endif
 
@@ -629,6 +708,9 @@ vec3 ApplyMainOpaqueShadowContract(
 	vec3 activeLightWorld = normalize(
 		mat3(gbufferModelViewInverse) * normalize(shadowLightPosition)
 	);
+	#if defined(FOXY_DIM_END)
+		activeLightWorld = normalize(EndKeyLightDirection(frameTimeCounter));
+	#endif
 
 	#if FOXY_VOXEL_TRACING == 0
 		float boundaryTravel = ShadowCasterBoundaryTravel(
@@ -652,7 +734,8 @@ vec3 ApplyMainOpaqueShadowContract(
 		float supplementalVisibility = VoxelCasterVisibility(
 			mainPlayerPosition,
 			receiverWorldNormal,
-			activeLightWorld
+			activeLightWorld,
+			nativeVisibility
 		);
 	#else
 		vec3 receiverViewNormal = normalize(mat3(gbufferModelView) * receiverWorldNormal);
@@ -697,6 +780,10 @@ vec3 ApplyVoxyOpaqueShadow(
 	vec3 voxyViewPosition = BackendLodViewPosition(voxyRasterUv, voxyDepth);
 	vec3 sunWorld = normalize(mat3(gbufferModelViewInverse) * vertexSunView);
 	vec3 moonWorld = normalize(mat3(gbufferModelViewInverse) * vertexMoonView);
+	#if defined(FOXY_DIM_END)
+		sunWorld = normalize(EndSunWorldDirection());
+		moonWorld = -sunWorld;
+	#endif
 
 	vec3 ambient;
 	vec3 directSun;
@@ -769,6 +856,54 @@ vec3 ApplyVoxyOpaqueShadow(
 	return max(sceneColor - max(unshadowed - shadowed, vec3(0.0)), vec3(0.0));
 }
 #endif
+
+#if !defined(VOXY) && FOXY_DH_ACTIVE == 1
+vec3 ApplyDhOpaqueShadow(
+	const in vec3 sceneColor,
+	const in vec2 viewUv,
+	const in vec2 renderUv,
+	const in vec4 surfaceData,
+	const in vec4 directShadowPacket,
+	const in Endpoint opaqueEndpoint
+) {
+	if (!EndpointOwnerIs(opaqueEndpoint, FOXY_ENDPOINT_OWNER_LOD)) return sceneColor;
+
+	float lodRawDepth = BackendLodSolidRaw(renderUv);
+	if (!BackendHasLodSurface(lodRawDepth)) return sceneColor;
+
+	vec3 removableDirect = DirectShadowContribution(directShadowPacket);
+	float nativeVisibility = DirectShadowNativeVisibility(directShadowPacket);
+	if (Luma(removableDirect) <= 1.0e-6 || nativeVisibility <= 1.0e-5) return sceneColor;
+
+	PtGbufferSample lodSurface = PtDecodeGbuffer(surfaceData, 0.5);
+	if (lodSurface.valid < 0.5) return sceneColor;
+
+	vec3 receiverViewPosition = BackendLodViewPosition(viewUv, lodRawDepth);
+	vec3 receiverViewNormal = normalize(
+		mat3(gbufferModelView) * lodSurface.worldGeometricNormal
+	);
+	float boundaryTravel = ShadowCasterBoundaryTravel(
+		PlayerPosFromViewPos(receiverViewPosition),
+		normalize(mat3(gbufferModelViewInverse) * normalize(shadowLightPosition))
+	);
+	const float maximumTraceReach = 128.0;
+	if (boundaryTravel >= maximumTraceReach) return sceneColor;
+
+	float stepLength = clamp(length(receiverViewPosition) * 0.0025, 2.5, 10.0);
+	float supplementalVisibility = UnifiedScreenShadowTrace(
+		receiverViewPosition,
+		receiverViewNormal,
+		normalize(shadowLightPosition),
+		stepLength * 16.0,
+		16
+	);
+	if (supplementalVisibility > 0.999) return sceneColor;
+
+	float finalVisibility = min(nativeVisibility, supplementalVisibility);
+	float retainedDirect = finalVisibility / max(nativeVisibility, 1.0e-5);
+	return max(sceneColor - removableDirect * (1.0 - Saturate(retainedDirect)), vec3(0.0));
+}
+#endif
 #endif
 
 void main() {
@@ -776,9 +911,7 @@ void main() {
 	vec2 rasterTexcoord = texcoord;
 	vec2 viewTexcoord = WaterCurrentViewUv(rasterTexcoord);
 	vec2 renderTexcoord = SceneRenderUv(rasterTexcoord);
-	Endpoint layerEndpoint = EndpointUnpack(
-		LoadCloudEndpoint(SceneRenderUv(viewTexcoord))
-	);
+
 	vec4 scene = texture2D(colortex0, renderTexcoord);
 	#if FOXY_MATERIAL_REFLECTIONS == 1
 		vec4 materialReflectionSignal = vec4(0.0);
@@ -786,11 +919,35 @@ void main() {
 	vec2 waterProducerUv = renderTexcoord;
 	vec2 waterPayloadUv = RenderPixelCenter(rasterTexcoord);
 	vec4 waterMaterialPacket = texture2D(colortex2, waterPayloadUv);
+	float waterMaterial = MaterialIsWater(waterMaterialPacket);
+	#if FOXY_WATER_CLASSIFY_FIRST == 1
+		Endpoint layerEndpoint = EndpointSky();
+		// Opaque pixels with volume enabled never consume this cloud endpoint.
+		if (waterMaterial > 0.5 || MaterialIsGlass(waterMaterialPacket) > 0.5 || FOXY_VOLUMETRIC_LIGHT == 0) {
+			layerEndpoint = EndpointUnpack(LoadCloudEndpoint(SceneRenderUv(viewTexcoord)));
+		}
+	#else
+	Endpoint layerEndpoint = EndpointUnpack(
+		LoadCloudEndpoint(SceneRenderUv(viewTexcoord))
+	);
+	#endif
 	vec4 waterSurfacePacket = texture2D(colortex13, waterPayloadUv);
-	WaterProducerPacket waterPacket = ResolveWaterProducer(waterProducerUv);
+	#if FOXY_WATER_CLASSIFY_FIRST == 1
+		WaterProducerPacket waterPacket = WaterProducerInvalid();
+		// The original visibility is multiplied by this exact 0/1 material tag.
+		// Skip main/LOD producer loads and normal decoding when it is zero.
+		if (waterMaterial > 0.5) waterPacket = ResolveWaterProducer(waterProducerUv);
+	#else
+		WaterProducerPacket waterPacket = ResolveWaterProducer(waterProducerUv);
+	#endif
+	Endpoint opaqueEndpoint = EndpointUnpack(
+		LoadOpaqueEndpoint(SceneRenderUv(viewTexcoord))
+	);
+	float waterPresent = WaterProducerVisibleBeforeOpaque(waterPacket, opaqueEndpoint)
+		* waterMaterial;
 	if (
 		abs(waterPacket.owner - FOXY_ENDPOINT_OWNER_MAIN_WATER) < 0.5
-		&& MaterialIsWater(waterMaterialPacket) > 0.5
+		&& waterMaterial > 0.5
 	) {
 
 		float mainWaterDepthRaw = texture2D(depthtex0, renderTexcoord).r;
@@ -800,6 +957,9 @@ void main() {
 			waterPacket.baseNormalView = MainWaterGeometricNormalView(viewTexcoord, mainWaterDepthRaw);
 
 			float mainOpaqueDepthRaw = texture2D(depthtex1, renderTexcoord).r;
+			if (opaqueEndpoint.owner < FOXY_ENDPOINT_OWNER_LOD) {
+				waterPresent = 1.0 - step(mainOpaqueDepthRaw, mainWaterDepthRaw);
+			}
 			waterPacket.backRayDistance = waterPacket.frontRayDistance;
 			if (mainOpaqueDepthRaw < 0.99999) {
 				vec3 mainOpaqueViewPos = ViewPosFromDepth(viewTexcoord, mainOpaqueDepthRaw);
@@ -807,17 +967,78 @@ void main() {
 			}
 		}
 	}
-	Endpoint opaqueEndpoint = EndpointUnpack(
-		LoadOpaqueEndpoint(SceneRenderUv(viewTexcoord))
-	);
 	#if defined(FOXY_DIM_NETHER) || defined(FOXY_DIM_END)
 
 		if (EndpointValid(opaqueEndpoint) < 0.5) {
 			scene.rgb = EncodeSceneColor(DimensionBackground(viewTexcoord));
 		}
 	#endif
-	float waterPresent = WaterProducerVisibleBeforeOpaque(waterPacket, opaqueEndpoint)
-		* MaterialIsWater(waterMaterialPacket);
+	#if !defined(FOXY_DIM_NETHER) && !defined(FOXY_DIM_END) && (FOXY_BLACKHOLE_SUN == 1 || FOXY_BLACKHOLE_MOON == 1)
+		if (EndpointValid(opaqueEndpoint) < 0.5) {
+			vec3 viewDirection = BackgroundWorldDirection(viewTexcoord);
+			vec3 sky = DecodeSceneColor(scene.rgb);
+			float aboveHorizon = BhRayHorizonFactor(viewDirection);
+			vec3 airTransmittance = BhRayAirTransmittance(viewDirection);
+			vec3 sunVecAny = mat3(gbufferModelViewInverse) * sunPosition;
+			float sunAltAny = (length(sunVecAny) > 1.0e-5) ? normalize(sunVecAny).y : 0.0;
+			vec3 galaxyHere = GalaxyAt(viewDirection, sunAltAny);
+			vec3 worldUp = vec3(0.0, 1.0, 0.0);
+			vec3 sunWorldAny = mat3(gbufferModelViewInverse) * sunPosition;
+			vec3 moonWorldAny = mat3(gbufferModelViewInverse) * moonPosition;
+			float sunWorldAlt = (length(sunWorldAny) > 1.0e-5)
+				? dot(normalize(sunWorldAny), worldUp) : 0.0;
+			float moonWorldAlt = (length(moonWorldAny) > 1.0e-5)
+				? dot(normalize(moonWorldAny), worldUp) : 0.0;
+			vec3 celestialBehind = SunMoonDisks(
+				viewDirection, sunWorldAny, moonWorldAny, worldUp,
+				sunWorldAlt, moonWorldAlt, rainStrength
+			) + galaxyHere;
+			#if FOXY_SKY_VANILLA_CELESTIALS == 0 && FOXY_SKY_VANILLA_MOON == 1 && FOXY_BLACKHOLE_MOON == 0
+				celestialBehind += VanillaMoonDisk(
+					viewDirection, moonWorldAny, worldUp, moonWorldAlt, rainStrength
+				);
+			#endif
+			#if FOXY_BLACKHOLE_SUN == 1
+			{	// own scope: the moon block below declares the same names
+				vec3 bodyVec = mat3(gbufferModelViewInverse) * sunPosition;
+				if (length(bodyVec) > 1.0e-5) {
+					vec3 bodyDirection = BhBodyApparentDirection(bodyVec);
+					vec3 lensedDirection;
+					vec4 hole = BlackHoleBodyOverlay(
+						viewDirection, frameTimeCounter, bodyDirection,
+						BhSunBodyView(),
+						lensedDirection);
+					float bodyUp = BhBodyUpFactor(bodyDirection);
+					sky = mix(sky, sky + airTransmittance * (
+							hole.rgb
+							+ hole.a * (GalaxyAt(lensedDirection, sunAltAny) - galaxyHere)
+							- (1.0 - hole.a) * celestialBehind),
+						bodyUp * aboveHorizon);
+				}
+			}
+			#endif
+			#if FOXY_BLACKHOLE_MOON == 1
+			{
+				vec3 bodyVec = mat3(gbufferModelViewInverse) * moonPosition;
+				if (length(bodyVec) > 1.0e-5) {
+					vec3 bodyDirection = BhBodyApparentDirection(bodyVec);
+					vec3 lensedDirection;
+					vec4 hole = BlackHoleBodyOverlay(
+						viewDirection, frameTimeCounter, bodyDirection,
+						BhMoonBodyView(),
+						lensedDirection);
+					float bodyUp = BhBodyUpFactor(bodyDirection);
+					sky = mix(sky, sky + airTransmittance * (
+							hole.rgb
+							+ hole.a * (GalaxyAt(lensedDirection, sunAltAny) - galaxyHere)
+							- (1.0 - hole.a) * celestialBehind),
+						bodyUp * aboveHorizon);
+				}
+			}
+			#endif
+			scene.rgb = EncodeSceneColor(sky);
+		}
+	#endif
 	#if FOXY_DIRECT_SHADOW_BRIDGE_ACTIVE == 1
 		if (waterPresent <= 0.0001) {
 			vec3 shadowedScene = ApplyMainOpaqueShadowContract(
@@ -834,6 +1055,16 @@ void main() {
 					viewTexcoord,
 					renderTexcoord,
 					waterMaterialPacket,
+					opaqueEndpoint
+				);
+			#endif
+			#if !defined(VOXY) && FOXY_DH_ACTIVE == 1
+				shadowedScene = ApplyDhOpaqueShadow(
+					shadowedScene,
+					viewTexcoord,
+					renderTexcoord,
+					waterMaterialPacket,
+					waterSurfacePacket,
 					opaqueEndpoint
 				);
 			#endif
@@ -906,7 +1137,7 @@ void main() {
 	}
 	float waterSunGlintSignal = MaterialWaterSunGlintSignal(
 		waterMaterialPacket,
-		192.0 * min(FOXY_WATER_SUN_GLINT, 1.0)
+		FOXY_MATERIAL_WATER_GLINT_MAX * min(FOXY_WATER_SUN_GLINT, 1.0)
 	);
 	scene.rgb = mix(
 		scene.rgb,
@@ -974,13 +1205,10 @@ void main() {
 	float waterFresnel = 0.020 + 0.980 * pow(1.0 - NoV, 5.0);
 	float internalReflectance = WaterInternalReflectance(NoV);
 	float snellWindow = 1.0;
-	float snellUvValid = 0.0;
-	vec2 snellTransmissionUv = viewTexcoord;
 	if (isEyeInWater == 1) {
 		snellWindow = WaterSnellWindowTransmission(NoV);
-		snellTransmissionUv = WaterSnellTransmissionUv(viewTexcoord, incidentView, normalView, snellUvValid);
 	}
-	float underwaterTransmission = underwaterMix * snellWindow * snellUvValid;
+	float underwaterTransmission = underwaterMix * snellWindow;
 	float totalInternalReflection = underwaterMix * (1.0 - underwaterTransmission);
 	float reflectionReflectance = mix(waterFresnel, internalReflectance, underwaterMix);
 	float reflectionUserScale = mix(0.30, 1.35, Saturate(FOXY_WATER_REFLECTION));
@@ -1040,116 +1268,15 @@ void main() {
 	float reflectionAmount = reflectionSignal.amount;
 
 float grazingWater = pow(1.0 - NoV, 2.15);
-	float waterFogOcclusion = 0.0;
-	float refractionWeight = 0.0;
-	float refractionSurface = waterPresent * (0.84 + FOXY_WATER_WAVE_STRENGTH * 0.32);
-	vec2 refractedUv = WaterRefractionUv(
-		viewTexcoord,
-		baseNormalView,
-		normalView,
-		waterDepth,
-		refractionSurface
+	WaterTransmissionResult transmission = ResolveWaterTransmission(
+		viewTexcoord, renderTexcoord, baseNormalView, normalView,
+		waterDepth, waterViewDistance, waterPathDistance, waterPresent,
+		waterWorldPos, upView, sunView, moonView, sunAltitude, NoV,
+		underwaterTransmission
 	);
-	float currentDepthRaw = texture2D(depthtex1, renderTexcoord).r;
-	float currentNotSky;
-	vec3 currentViewPos = WaterSolidViewPosition(viewTexcoord, renderTexcoord, currentDepthRaw, currentNotSky);
-	float currentLinearDepth = max(-currentViewPos.z, 0.0);
-	float currentRayDistance = max(length(currentViewPos) - waterViewDistance, 0.0);
-	float currentDepthSpan = currentLinearDepth - waterDepth;
-	float currentBelowSurface = smoothstep(-0.03, 0.18, currentDepthSpan) * smoothstep(0.03, 0.70, currentRayDistance);
-	float currentUnderwaterTarget = currentNotSky * currentBelowSurface * waterPresent * (isEyeInWater == 0 ? 1.0 : 0.0);
-	vec2 refractedRenderUv = WaterCurrentRenderUv(refractedUv);
-	float refractedDepthRaw = texture2D(depthtex1, refractedRenderUv).r;
-	float refractedNotSky;
-	vec3 refractedViewPos = WaterSolidViewPosition(refractedUv, refractedRenderUv, refractedDepthRaw, refractedNotSky);
-	float refractedLinearDepth = max(-refractedViewPos.z, 0.0);
-	float refractedRayDistance = max(length(refractedViewPos) - waterViewDistance, 0.0);
-	float refractedDepthSpan = refractedLinearDepth - waterDepth;
-	float refractedBelowSurface = smoothstep(-0.03, 0.18, refractedDepthSpan) * smoothstep(0.03, 0.70, refractedRayDistance);
-	float refractionDepthJump = abs(refractedLinearDepth - currentLinearDepth);
-	float refractionEdgeReject = smoothstep(0.42 + waterDepth * 0.010, 2.65 + waterDepth * 0.035, refractionDepthJump);
-	float stableRefraction = (1.0 - refractionEdgeReject) * refractedNotSky * refractedBelowSurface * waterPresent * (isEyeInWater == 0 ? 1.0 : 0.0);
-	stableRefraction *= ScreenEdgeFade(refractedUv);
-	vec2 transmittedUv = mix(viewTexcoord, refractedUv, stableRefraction);
-	transmittedUv = mix(transmittedUv, snellTransmissionUv, underwaterTransmission);
-	vec2 transmittedRenderUv = WaterCurrentRenderUv(transmittedUv);
-	float transmittedDepthRaw = texture2D(depthtex1, transmittedRenderUv).r;
-	vec3 transmitted = OrderedSceneSampleBehind(
-		transmittedUv,
-		waterViewDistance
-	);
-	float transmittedNotSky;
-	vec3 transmittedViewPos = WaterSolidViewPosition(transmittedUv, transmittedRenderUv, transmittedDepthRaw, transmittedNotSky);
-	float transmittedLinearDepth = max(-transmittedViewPos.z, 0.0);
-	float transmittedRayDistance = max(length(transmittedViewPos) - waterViewDistance, 0.0);
-	float transmittedDepthSpan = transmittedLinearDepth - waterDepth;
-	float belowSurface = smoothstep(-0.03, 0.18, transmittedDepthSpan) * smoothstep(0.03, 0.70, transmittedRayDistance);
-	float noBottomWater = (1.0 - transmittedNotSky) * waterPresent * (isEyeInWater == 0 ? 1.0 : 0.0);
-	float packetUnderwaterTarget = smoothstep(0.03, 0.70, waterPathDistance) * waterPresent * (isEyeInWater == 0 ? 1.0 : 0.0);
-	float underwaterTarget = max(max(transmittedNotSky * belowSurface, packetUnderwaterTarget), noBottomWater) * waterPresent * (isEyeInWater == 0 ? 1.0 : 0.0);
-	if (underwaterTarget > 0.001) {
-		float noBottomRayDistance = max(far * 0.35, 96.0);
-		float depthStableRayDistance = max(transmittedRayDistance, currentRayDistance * currentUnderwaterTarget);
-		float packetFallbackWeight = (1.0 - transmittedNotSky * belowSurface) * smoothstep(0.18, 1.20, waterPathDistance);
-		float conservativeRayDistance = max(depthStableRayDistance, mix(depthStableRayDistance, waterPathDistance, 0.18));
-		float effectiveWaterRayDistance = noBottomWater > 0.5 ? noBottomRayDistance : mix(conservativeRayDistance, waterPathDistance, packetFallbackWeight);
-		float waterFog = Saturate(FOXY_WATER_FOG);
-		float waterRayDistance = effectiveWaterRayDistance;
-		vec3 waterTransmittance = WaterTransmittance(waterRayDistance * mix(1.15, 2.10, waterFog), waterFog);
-
-		float solarLightingVisibility = DirectCelestialVisibility(sunAltitude);
-		float moonLightingVisibility = DirectCelestialVisibility(vertexMoonAltitude);
-		float solarIrradiance = WaterSolarIrradiance(vertexSunLightColor, sunAltitude);
-		float lunarIrradiance = WaterLunarIrradiance(vertexMoonLightColor, vertexMoonAltitude);
-		float sourceIrradiance = solarIrradiance + lunarIrradiance;
-		float sunTopLight = max(dot(upView, sunView), 0.0);
-		float moonTopLight = max(dot(upView, moonView), 0.0);
-		float topLight = (sunTopLight * solarIrradiance + moonTopLight * lunarIrradiance)
-			/ max(sourceIrradiance, 1.0e-4);
-		vec3 moonLightColor = vertexMoonLightColor;
-		vec3 activeDirectColor = vertexSunLightColor * solarLightingVisibility
-			+ moonLightColor * moonLightingVisibility;
-		float activeDirectAmount = Saturate(topLight * sourceIrradiance);
-		vec3 waterAmbient = vertexSkyAmbientColor + MoonAmbientColorFromMoonColor(moonLightColor);
-		float skyIrradiance = WaterSkyIrradiance(waterAmbient, rainStrength);
-		float stableWaterSkyLight = Saturate((0.26 + smoothstep(-0.08, 0.34, sunAltitude) * 0.42
-			+ (1.0 - rainStrength) * 0.10) * mix(0.30, 1.0, skyIrradiance));
-		vec3 waterScatter = WaterScatterColor(waterAmbient, activeDirectColor, activeDirectAmount, stableWaterSkyLight, rainStrength);
-		vec3 waterInput = mix(waterScatter, transmitted, transmittedNotSky);
-		vec3 transmittedWater = waterInput * waterTransmittance + waterScatter * (vec3(1.0) - waterTransmittance);
-		if (transmittedNotSky * belowSurface > 0.001) {
-			vec3 transmittedPlayerPos = PlayerPosFromViewPos(transmittedViewPos);
-			vec3 transmittedWorldPos = transmittedPlayerPos + cameraPosition;
-			vec3 sunWorld = TiltCelestialWorld(ViewToWorldDir(gbufferModelViewInverse, sunView));
-			float verticalWaterDepth = max(waterWorldPos.y - transmittedWorldPos.y, 0.0);
-			float caustics = WaterCaustics(
-				transmittedWorldPos,
-				sunWorld,
-				frameTimeCounter,
-				verticalWaterDepth,
-				verticalWaterDepth
-			);
-			float causticVisibility = transmittedNotSky * belowSurface;
-			causticVisibility *= smoothstep(0.02, 0.30, sunWorld.y);
-			causticVisibility *= 1.0 - rainStrength * 0.78;
-			causticVisibility *= 1.0 - smoothstep(54.0, 138.0, verticalWaterDepth);
-			float causticFocus = max(caustics - 1.0, 0.0)
-				* FOXY_WATER_CAUSTICS_BRIGHTNESS * causticVisibility;
-			vec3 sunTint = max(vertexSunLightColor, vec3(0.0));
-			sunTint /= max(Luma(sunTint), 0.16);
-			vec3 causticTint = mix(vec3(1.0), sunTint, 0.18);
-			transmittedWater *= vec3(1.0) + causticTint * causticFocus * 0.78;
-		}
-		float waterOcclusion = Saturate(1.0 - max(max(waterTransmittance.r, waterTransmittance.g), waterTransmittance.b));
-		waterFogOcclusion = waterOcclusion * underwaterTarget;
-		float waterFogReplace = mix(0.30, 1.0, smoothstep(0.05, 0.72, waterOcclusion));
-		transmitted = mix(transmitted, transmittedWater, underwaterTarget * waterFogReplace);
-	}
-	float refractionCoverage = smoothstep(0.015, 0.18, NoV);
-	float refractionReplace = mix(0.97, 1.0, Saturate(FOXY_WATER_FOG));
-	float fogReplace = smoothstep(0.08, 0.92, waterFogOcclusion);
-	refractionWeight = max(underwaterTarget * refractionCoverage * refractionReplace, fogReplace * waterPresent);
-	refractionWeight = max(refractionWeight, underwaterTransmission);
+	vec3 transmitted = transmission.color;
+	float refractionWeight = transmission.weight;
+	float waterFogOcclusion = transmission.fogOcclusion;
 	vec3 baseScene = mix(scene.rgb, transmitted, Saturate(refractionWeight));
 	float finalReflectionAmount = 0.0;
 	vec3 color = CompositeWaterReflection(baseScene, reflectionSignal, reflectionAmount, waterFogOcclusion, grazingWater, finalReflectionAmount);

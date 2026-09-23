@@ -3,8 +3,6 @@
 
 #if FOXY_SKY_VANILLA_MOON == 1 && !defined(FOXY_DIM_NETHER) && !defined(FOXY_DIM_END)
 
-// Eight 8x8 source moon phases, copied verbatim from Minecraft's celestial
-// textures. Each phase occupies one row in this 8 by 64 RGBA8 texture.
 uniform sampler2D vanillaMoonCore;
 
 vec3 VanillaMoonDisk(

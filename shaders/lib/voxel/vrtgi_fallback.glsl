@@ -37,10 +37,12 @@ vec3 VrtgiReceiverFallbackRadiance(
 	const in vec3 worldNormal,
 	const in vec3 skyFluence
 ) {
-	float blockLevel = Saturate(lightmap.x);
-
-	vec3 radiance = vec3(blockLevel * blockLevel * 0.18) *
-		FOXY_VOXEL_GI_EMITTER_BRIGHTNESS * FOXY_VXGI_EMITTER_CALIBRATION;
+	vec3 radiance = vec3(0.0);
+	#if FOXY_VXGI_BLOCKLIGHT_EMITTER == 1
+		float blockLevel = Saturate(lightmap.x);
+		radiance = vec3(blockLevel * blockLevel * 0.18) *
+			FOXY_VOXEL_GI_EMITTER_BRIGHTNESS * FOXY_VXGI_EMITTER_CALIBRATION;
+	#endif
 
 	vec3 skyMeanRadiance = max(skyFluence, vec3(0.0)) / (2.0 * PI);
 	float skyMeanLuma = dot(max(skyMeanRadiance, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
@@ -72,7 +74,7 @@ vec3 VrtgiReceiverFallbackRadiance(
 
 	radiance += neutralSkyMeanRadiance * skyVisibility * skyFacing *
 		FOXY_VOXEL_GI_SKY_BRIGHTNESS;
-	return radiance * (1.0 / 8.0);
+	return FoxyIndirectColorTemperature(radiance * (1.0 / 8.0));
 }
 
 #endif

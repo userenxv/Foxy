@@ -78,7 +78,7 @@ int VoxelShapeDescriptorForPayload(
 	const in uint payload
 ) {
 	int descriptor = VoxelShapeDescriptorIndex(materialId);
-	if (materialId == FOXY_VOXEL_LAVA_SURFACE_MATERIAL) {
+	if (materialId == 10198u) {
 		descriptor = FOXY_VOXEL_LAVA_SURFACE_DESCRIPTOR;
 	}
 	return descriptor;

@@ -40,7 +40,7 @@ vec2 PtUnpackUnorm2x8(const in float encodedValue) {
 	return vec2(highByte, lowByte) * (1.0 / 255.0);
 }
 
-#if FOXY_PT_GBUFFER_ACTIVE == 1 || defined(VOXY)
+#if FOXY_PT_GBUFFER_ACTIVE == 1 || defined(VOXY) || defined(PT_GBUFFER_WRITE) || defined(PT_GBUFFER_READ)
 
 #define PT_SURFACE_OPAQUE 0.0
 #define PT_SURFACE_FOLIAGE 1.0

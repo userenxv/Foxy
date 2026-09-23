@@ -1,15 +1,25 @@
 #include "/lib/settings.glsl"
 #include "/lib/math.glsl"
+#define PT_GBUFFER_WRITE
+#include "/lib/pt_gbuffer.glsl"
+#undef PT_GBUFFER_WRITE
 #include "/lib/celestial.glsl"
 #include "/lib/lighting.glsl"
 #include "/lib/sky.glsl"
+#include "/lib/dimension_sky.glsl"
 #include "/lib/contracts/endpoint.glsl"
+#include "/lib/contracts/direct_shadow.glsl"
 #include "/lib/dh_shadow.glsl"
+#include "/lib/seasons.glsl"
 
-#if FOXY_PT_GBUFFER_ACTIVE == 1
-/* RENDERTARGETS: 0,2 */
+#if FOXY_DIRECT_SHADOW_BRIDGE_ACTIVE == 1
+/* RENDERTARGETS: 0,2,13 */
 #else
+	#if FOXY_PT_GBUFFER_ACTIVE == 1
+/* RENDERTARGETS: 0,2 */
+	#else
 /* DRAWBUFFERS:0 */
+	#endif
 #endif
 
 uniform sampler2D lightmap;
@@ -75,13 +85,20 @@ void main() {
 	vec3 directMoonColor = moonLightColor * ((1.0 - useSunShadow) * activeDirectWeight);
 	vec3 direct = directSunColor * (sunNoL * 1.08 + pow(sunNoL, 8.0) * 0.24) * sunShadow * skyLight;
 	direct += directMoonColor * (moonNoL * 1.03 + pow(moonNoL, 8.0) * 0.08) * moonShadow * skyLight;
-	float ambientVisibility = AmbientSkyVisibility(sunAltitude, skyLight);
 	float ambientSunShadow = mix(1.0, sunShadow, smoothstep(0.015, 0.18, sunNoL));
 	float ambientMoonShadow = mix(1.0, moonShadow, smoothstep(0.015, 0.18, moonNoL));
 	float ambientCelestialShadow = mix(ambientMoonShadow, ambientSunShadow, SolarDiscVisibility(sunAltitude));
 	float ambientShadowed = mix(1.0 - FOXY_SHADOW_AMBIENT_DARKEN, 1.0, ambientCelestialShadow);
 	float ambientShadowInfluence = mix(0.10, 1.0, smoothstep(-0.04, 0.16, sunAltitude));
-	vec3 ambient = (skyAmbientColor + MoonAmbientColorFromMoonColor(moonLightColor)) * ambientVisibility * mix(1.0, ambientShadowed, ambientShadowInfluence);
+	vec3 ambient;
+	#if FOXY_RAY_ACTIVE == 0 && defined(FOXY_DIM_NETHER)
+		ambient = NetherAmbientColor();
+	#elif FOXY_RAY_ACTIVE == 0 && defined(FOXY_DIM_END)
+		ambient = EndAmbientColor();
+	#else
+		float ambientSkyVisibility = AmbientSkyVisibility(sunAltitude, skyLight);
+		ambient = (skyAmbientColor + MoonAmbientColorFromMoonColor(moonLightColor)) * ambientSkyVisibility * mix(1.0, ambientShadowed, ambientShadowInfluence);
+	#endif
 	vec3 torch = TorchColor(blockLight);
 	float lightFloor = mix(0.00035, 0.0035, Saturate(blockLight * 1.8 + skyLight * 0.85));
 
@@ -95,9 +112,18 @@ void main() {
 		detailUv = absoluteWorldPos.xy;
 	}
 	float terrainDetail = texture2D(noisetex, detailUv * 0.03125).r * 2.0 - 1.0;
-	vec3 albedo = SrgbToLinear(clamp(dhColor.rgb, vec3(0.0), vec3(1.0)));
+	vec3 dhSurface = SeasonApplyBiomeTint(clamp(dhColor.rgb, vec3(0.0), vec3(1.0)), dhColor.rgb);
+	#if FOXY_DH_LOD_TEXTURES == 1
+	if (dh_hasTexture()) {
+		vec3 texel = clamp(dh_sampleTexture().rgb, vec3(0.0), vec3(1.0));
+		float tintScale = clamp(Luma(dhSurface) / max(Luma(texel), 1.0e-3), 0.5, 2.0);
+		dhSurface = clamp(texel * tintScale, vec3(0.0), vec3(1.0));
+	}
+	#endif
+	vec3 albedo = SrgbToLinear(dhSurface);
 	albedo *= 1.0 + terrainDetail * 0.08;
-	vec3 lit = albedo * (lightmapColor * 0.34 + ambient + direct + torch + vec3(lightFloor));
+	vec3 removableDirectBeforeFog = albedo * direct;
+	vec3 lit = albedo * (ambient + direct + torch + vec3(lightFloor));
 	vec3 clearSunColor = SunColor(sunAltitude, 0.0);
 	vec3 fogColor = FogColorFromClearSunColor(sunAltitude, rainStrength, clearSunColor);
 	vec2 boundaryWeights = SkyBoundaryFogWeights(dhPlayerPos, sunAltitude, SceneReach(far));
@@ -105,14 +131,44 @@ void main() {
 	if (max(boundaryWeights.x, boundaryWeights.y) > 0.001) {
 		boundaryColor = SkyBoundaryFogColor(colortex7, dhViewPos, gbufferModelViewInverse);
 	}
+	vec3 directSurfaceTransmission = vec3(1.0);
 	#if FOXY_VOLUMETRIC_LIGHT == 0
-		lit = ApplyFog(lit, fogColor, boundaryColor, boundaryWeights, dhViewPos, dhPlayerPos + cameraPosition, cameraPosition, upView);
+		lit = ApplyFogWithSurfaceTransmission(lit, fogColor, boundaryColor, boundaryWeights, dhViewPos, dhPlayerPos + cameraPosition, cameraPosition, upView, directSurfaceTransmission);
 	#endif
 	float eyeSkyLight = Saturate(float(eyeBrightnessSmooth.y) / 240.0);
+	vec3 litBeforePurkinje = lit;
 	lit = ApplyPurkinjeVision(lit, sunAltitude, blockLight, skyLight, eyeSkyLight);
 
+	#if FOXY_DIRECT_SHADOW_BRIDGE_ACTIVE == 1
+		vec3 removableDirectAfterFog = removableDirectBeforeFog * directSurfaceTransmission;
+		vec3 litWithoutDirect = ApplyPurkinjeVision(
+			max(litBeforePurkinje - removableDirectAfterFog, vec3(0.0)),
+			sunAltitude,
+			blockLight,
+			skyLight,
+			eyeSkyLight
+		);
+		vec4 directShadowOutput = DirectShadowPack(
+			max(lit - litWithoutDirect, vec3(0.0)),
+			activeShadow
+		);
+	#endif
+
 	gl_FragData[0] = vec4(EncodeSceneColor(max(lit, vec3(0.0))), 1.0);
-	#if FOXY_PT_GBUFFER_ACTIVE == 1
-		gl_FragData[1] = vec4(0.0);
+	#if FOXY_DIRECT_SHADOW_BRIDGE_ACTIVE == 1
+	gl_FragData[1] = PtEncodeGbuffer(
+		albedo,
+		worldNormal,
+		worldNormal,
+		lmcoord,
+		PT_SURFACE_OPAQUE,
+		0.82,
+		0.0
+	);
+	gl_FragData[2] = directShadowOutput;
+	#else
+		#if FOXY_PT_GBUFFER_ACTIVE == 1
+	gl_FragData[1] = vec4(0.0);
+		#endif
 	#endif
 }

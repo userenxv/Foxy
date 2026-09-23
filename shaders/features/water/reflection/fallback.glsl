@@ -2,6 +2,8 @@
 #define WATER_REFLECTION_FALLBACK_GLSL
 
 #include "/lib/cloud_coverage.glsl"
+#include "/lib/weather.glsl"
+#include "/lib/blackhole_sky.glsl"
 
 uniform sampler2D cloudWeatherMap;
 
@@ -67,8 +69,9 @@ vec4 DirectionalSkyCloudReflection(
 	#if FOXY_NASA_GALAXY == 1 && !defined(FOXY_DIM_NETHER) && !defined(FOXY_DIM_END)
 		skyColor += NasaGalaxyRadiance(skyDirection, sunAltitude, rainStrength, worldTime);
 	#endif
-	skyColor += SunMoonDisks(reflectedDir, sunView, moonView, upView, sunAltitude, moonAltitude, rainStrength) * 0.20;
-	#if FOXY_SKY_VANILLA_CELESTIALS == 0 && FOXY_SKY_VANILLA_MOON == 1 && !defined(FOXY_DIM_NETHER) && !defined(FOXY_DIM_END)
+	skyColor += BlackHoleReflectionRadiance(worldDir);
+	skyColor += SunMoonDisks(reflectedDir, sunView, moonView, upView, sunAltitude, moonAltitude, rainStrength);
+	#if FOXY_SKY_VANILLA_CELESTIALS == 0 && FOXY_SKY_VANILLA_MOON == 1 && FOXY_BLACKHOLE_MOON == 0 && !defined(FOXY_DIM_NETHER) && !defined(FOXY_DIM_END)
 		skyColor += VanillaMoonDisk(reflectedDir, moonView, upView, moonAltitude, rainStrength) * 0.20;
 	#endif
 	float skyWeight = smoothstep(-0.055, -0.004, worldDir.y);
@@ -91,11 +94,11 @@ vec4 DirectionalSkyCloudReflection(
 				vec3 cloudPos = referenceWaterPos + skyDirection * t;
 				vec3 densityPos = CloudCoverageUnscaleWorld(cloudPos);
 				vec2 wind = CloudCoverageWindDir().xz;
-				densityPos.xz += wind * (frameTimeCounter * FOXY_CLOUD_SPEED * 22.0);
+				densityPos.xz += wind * ((frameTimeCounter + WeatherWindDrift(FOXY_WIND_CLOUDS)) * FOXY_CLOUD_SPEED * 22.0);
 				vec4 weather = texture2D(cloudWeatherMap, CloudCoverageWeatherUv(densityPos.xz, frameTimeCounter));
-				float coverageControl = Saturate(FOXY_CLOUD_COVERAGE + rainStrength * 0.20 + FOXY_CLOUD_HORIZONTAL_COVERAGE_BIAS);
+				float coverageControl = Saturate(WeatherCloudCoverage(rainStrength) + FOXY_CLOUD_HORIZONTAL_COVERAGE_BIAS);
 				float coverageLift = coverageControl - 0.50 + max(FOXY_CLOUD_HORIZONTAL_COVERAGE_BIAS, 0.0) * 1.80;
-				float liftedCoverage = Saturate(weather.r + coverageLift);
+				float liftedCoverage = Saturate((weather.r + coverageLift) * WeatherCloudCoverageGain(rainStrength));
 				float broadCell = smoothstep(0.18, 0.78, weather.g);
 				float sheetBreak = smoothstep(0.28, 0.68, liftedCoverage * 0.70 + weather.g * 0.44);
 				float sparseFloor = liftedCoverage * smoothstep(0.0, 0.42, coverageLift);

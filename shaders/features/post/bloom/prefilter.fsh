@@ -22,7 +22,6 @@ return color * min(1.0, 64.0 / max(luma, 1.0e-4));
 }
 
 vec3 BloomPrefilter13(const in vec2 uv, const in vec2 px) {
-	// Technique: Sledgehammer Games, "Next Generation Post Processing in Call of Duty: Advanced Warfare," SIGGRAPH 2014.
 
 	vec3 bloom = BloomSafeSample(uv) * 0.125;
 	bloom += BloomSafeSample(uv + vec2( 1.0,  1.0) * px) * 0.125;

@@ -6,7 +6,6 @@
 #include "/lib/contracts/sky_lut.glsl"
 #include "/lib/lighting.glsl"
 
-uniform int worldTime;
 uniform sampler2D atmosphereMultiLut;
 
 const float SKY_BASE_SUNSET_HORIZON_TICK = 12700.0;
@@ -100,7 +99,7 @@ float SkyTimeAfter(const in float t, const in float anchor) {
 }
 
 float SkyTimeSunAltitudeAnchored(const in float sunriseTickSetting, const in float sunsetTickSetting) {
-	float t = mod(float(worldTime), 24000.0);
+	float t = mod(float(FOXY_WORLD_TICK), 24000.0);
 	float sunriseTick = mod(sunriseTickSetting, 24000.0);
 	float sunsetTick = mod(sunsetTickSetting, 24000.0);
 	float dayLength = clamp(SkyTimeAfter(sunsetTick, sunriseTick), 1000.0, 23000.0);
@@ -226,11 +225,24 @@ float SkyViewAltitudeToLutY(const in float y) {
 	return normalized * 0.5 + 0.5;
 }
 
+const float SKY_LUT_HORIZON_SAMPLE_UP = max(FOXY_SKY_BELOW_HORIZON_LIFT, 0.0);
+const float SKY_LUT_HORIZON_FALLOFF = max(FOXY_SKY_BELOW_HORIZON_RANGE, 0.004);
+
+float SkyGlobalSunAltitude = 1.0;
+
+float SkyLutHorizonLiftWeight() {
+	return 0.30 + 0.70 * smoothstep(-0.120, -0.010, SkyGlobalSunAltitude);
+}
+
 vec2 SkyViewLutUv(const in vec3 worldDir) {
 	vec3 dir = normalize(worldDir);
 	float azimuth = atan(dir.x, -dir.z);
 	float u = fract(azimuth / (2.0 * PI) + 0.5);
-	float v = SkyViewAltitudeToLutY(dir.y);
+	float depth = smoothstep(0.0, SKY_LUT_HORIZON_FALLOFF, -dir.y);
+	float naturalY = dir.y - depth * SKY_LUT_HORIZON_SAMPLE_UP;
+	float liftedY = max(dir.y, SKY_LUT_HORIZON_SAMPLE_UP) - depth * SKY_LUT_HORIZON_SAMPLE_UP;
+	float sampledY = mix(naturalY, liftedY, SkyLutHorizonLiftWeight());
+	float v = SkyViewAltitudeToLutY(sampledY);
 	return SkyLutPhysicalUv(vec2(u, v));
 }
 
@@ -354,6 +366,7 @@ vec3 AtmosphereScatteringV3(
 	vec3 moonRay = normalize(moonDir);
 	float effectiveSunAltitude = clamp(dot(sunRay, up), -1.0, 1.0);
 	float moonAltitude = clamp(dot(moonRay, up), -1.0, 1.0);
+	SkyGlobalSunAltitude = effectiveSunAltitude;
 	float geometricViewUp = dot(geometricView, up);
 	vec3 atmosphereView = SkyHorizonFogRay(geometricView, up);
 	atmosphereView = SkyWarpViewRay(atmosphereView, up);
@@ -435,8 +448,11 @@ vec3 AtmosphereScatteringV3(
 	vec3 solarSky = (directScattering + multipleScattering) * exposureScale;
 	vec3 lunarSky = (moonDirectScattering + moonMultipleScattering) * exposureScale;
 	vec3 sky = solarSky + lunarSky;
+	// Overcast greying: the sky is pulled onto its own luminance as rain fills
+	// in, so the grey is derived from the sky itself and stays luminance matched.
 	float skyLuma = Luma(sky);
-	sky = mix(vec3(skyLuma), sky, AtmosphereStyleSaturation() * (1.0 - rainStrength * 0.30));
+	float rainNeutralize = Saturate(rainStrength * 1.3889);
+	sky = mix(vec3(skyLuma), sky, AtmosphereStyleSaturation() * (1.0 - rainNeutralize));
 	float visibility = max(day, twilightCarry * 0.82);
 	vec3 nightSky = vec3(0.0025, 0.0045, 0.0110) + vec3(0.0040, 0.0050, 0.0110) * exp(-abs(viewUp) * 7.0);
 	sky = mix(nightSky + lunarSky, max(sky, vec3(0.0)), visibility);
@@ -475,6 +491,26 @@ vec3 SkyRefractedSunDirection(
 	return SkySunDirectionWithAltitude(sunDir, upDir, apparentSunAltitude);
 }
 
+vec3 MoonDiskRadiance(
+	const in vec3 rayDir,
+	const in vec3 moonDir,
+	const in vec3 upDir,
+	const in float moonAltitude,
+	const in float rainStrength
+) {
+	#if FOXY_SKY_VANILLA_CELESTIALS == 1
+		return vec3(0.0);
+	#endif
+	float rayAltitude = dot(normalize(rayDir), normalize(upDir));
+	float horizonClip = CelestialRayHorizonVisibility(rayAltitude);
+	float disk = smoothstep(0.99925, 0.99986, dot(rayDir, moonDir)) * horizonClip;
+	vec3 moon = MoonColor(moonAltitude, rainStrength) * disk * 8.0;
+	#if FOXY_SKY_VANILLA_MOON == 1 || FOXY_BLACKHOLE_MOON == 1
+		moon = vec3(0.0);
+	#endif
+	return moon;
+}
+
 vec3 SunMoonDisks(
 	const in vec3 rayDir,
 	const in vec3 sunDir,
@@ -496,11 +532,10 @@ vec3 SunMoonDisks(
 	vec3 apparentSunDir = SkyRefractedSunDirection(geometricSunDir, up, geometricSunAltitude);
 	float apparentSunAltitude = clamp(dot(apparentSunDir, up), -1.0, 1.0);
 	float sunDot = dot(rayDir, apparentSunDir);
-
-	const float sunAngularRadius = FOXY_SUN_ANGULAR_RADIUS;
+	float lowSunSize = 1.0 - smoothstep(0.0, 0.28, geometricSunAltitude);
+	float sunAngularRadius = FOXY_SUN_ANGULAR_RADIUS * mix(1.0, 1.25, lowSunSize);
 	float sunProfile = SunAngularSourceProfile(sunDot, sunAngularRadius) * sunHorizonClip;
-
-	const float aureoleAngularRadius = FOXY_SUN_ANGULAR_RADIUS * 1.35;
+	float aureoleAngularRadius = sunAngularRadius * 1.35;
 	float sunCosine = cos(sunAngularRadius);
 	float aureoleCosine = cos(aureoleAngularRadius);
 	float aureoleSpan = max(sunCosine - aureoleCosine, 1.0e-5);
@@ -520,11 +555,10 @@ vec3 SunMoonDisks(
 	const float aureoleRadianceScale = 0.002;
 	vec3 aureole = solarRadiance * aureoleProfile * aureoleEnergy * FOXY_SUN_DISK_BRIGHTNESS * 0.0006 * sunHorizonClip * visiblePhotosphere;
 	vec3 sun = disk + aureole;
-	vec3 moon = MoonColor(moonAltitude, rainStrength) * moonDisk * 8.0;
-	#if FOXY_SKY_VANILLA_MOON == 1
-		moon = vec3(0.0);
+	vec3 moon = MoonDiskRadiance(rayDir, moonDir, up, moonAltitude, rainStrength);
+	#if FOXY_BLACKHOLE_SUN == 1
+		sun = vec3(0.0);
 	#endif
 	return sun + moon;
 }
-
 #endif

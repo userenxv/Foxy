@@ -1,5 +1,7 @@
 #version 430 compatibility
 #include "/lib/settings.glsl"
+#include "/lib/sable.glsl"
+uniform mat4 gbufferModelView;
 #include "/lib/math.glsl"
 #include "/lib/shadow.glsl"
 #include "/lib/wind.glsl"
@@ -10,10 +12,10 @@ attribute vec2 mc_midTexCoord;
 uniform mat4 shadowModelViewInverse;
 uniform mat4 shadowModelView;
 uniform vec3 cameraPosition;
-uniform float frameTimeCounter;
 uniform float rainStrength;
 
 #if FOXY_VOXEL_ACTIVE == 1
+#define FOXY_VOXEL_SKIP_UNKNOWN_CUTOUT
 #define FOXY_VOXEL_BUFFER_WRITE
 #include "/lib/voxel/voxel_grid.glsl"
 	#if FOXY_MATERIAL_REFLECTIONS == 1 && FOXY_MATERIAL_REFLECTION_GLOBAL == 1 && FOXY_MATERIAL_REFLECTION_OFFSCREEN == 1
@@ -29,6 +31,7 @@ varying vec2 texcoord;
 varying vec4 surfaceColor;
 
 void main() {
+	bool sableSubLevel = SableSubLevelDraw(gl_ModelViewMatrix, gbufferModelView, shadowModelView);
 	texcoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
 	surfaceColor = gl_Color;
 	vec4 baseShadowViewPos = gl_ModelViewMatrix * gl_Vertex;
@@ -59,15 +62,15 @@ void main() {
 	uint materialId = uint(max(mc_Entity.x, 0.0) + 0.5);
 	uint storedMaterialId = VoxelMaterialForGeometry(materialId, scenePos, cameraPosition, sceneNormal);
 	#if FOXY_MATERIAL_REFLECTIONS == 1 && FOXY_MATERIAL_REFLECTION_GLOBAL == 1 && FOXY_MATERIAL_REFLECTION_OFFSCREEN == 1
-	if (storedMaterialId >= FOXY_VOXEL_CUSTOM_MATERIAL_BASE) VoxelMaterialColorStore(ivec3(floor(VoxelGridSceneToGrid(scenePos, cameraPosition))), storedMaterialId, VoxelEncodeAxisNormal(sceneNormal), spriteCenterUv, texcoord);
+	if (storedMaterialId >= FOXY_VOXEL_CUSTOM_MATERIAL_BASE) if (!sableSubLevel) VoxelMaterialColorStore(ivec3(floor(VoxelGridSceneToGrid(scenePos, cameraPosition))), storedMaterialId, VoxelEncodeAxisNormal(sceneNormal), spriteCenterUv, texcoord);
 	#endif
 	VoxelGridStoreScene(
 		scenePos,
 		cameraPosition,
 		materialId,
 		sceneNormal,
-		at_midBlock.w,
-		lightmapUv
+		BlockEmissionLevel(mc_Entity.x, at_midBlock),
+		lightmapUv, sableSubLevel
 	);
 #endif
 }

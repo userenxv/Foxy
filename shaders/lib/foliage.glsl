@@ -5,6 +5,10 @@ float FoliageMaterialMatch(const in float materialId, const in float expectedId)
 	return 1.0 - step(0.5, abs(materialId - expectedId));
 }
 
+bool FoliageIsLeaf(const in float materialId) {
+	return abs(materialId - 10100.0) < 0.5 || abs(materialId - 12000.0) < 0.5;
+}
+
 #if FOXY_PBR_SSS_ALPHA_NEIGHBORS == 1
 vec2 FoliageSpriteSampleUv(const in vec2 uv, const in vec2 atlasTexel) {
 	vec2 spriteHalf = max(spriteHalfSize, atlasTexel);
@@ -47,9 +51,12 @@ float FoliageLeafBoundaryMask(const in float centerAlpha) {
 }
 
 float FoliageTransmissionMask(const in float centerAlpha) {
-	float leaves = FoliageMaterialMatch(vertexMaterialId, 10100.0);
+	float leaves = max(
+		FoliageMaterialMatch(vertexMaterialId, 10100.0),
+		FoliageMaterialMatch(vertexMaterialId, 12000.0)
+	);
 	if (leaves > 0.5) {
-		return FoliageLeafBoundaryMask(centerAlpha);
+		return smoothstep(0.10, 0.30, centerAlpha);
 	}
 
 	float shortPlant = FoliageMaterialMatch(vertexMaterialId, 10101.0);
@@ -65,7 +72,20 @@ float FoliageTransmissionMask(const in float centerAlpha) {
 	} else if (shortPlant <= 0.5) {
 		return 0.0;
 	}
-	return smoothstep(0.26, 0.92, plantHeight) * centerCoverage;
+	return smoothstep(0.12, 0.72, plantHeight) * centerCoverage;
+}
+
+float FoliageSoftSunMask(
+	const in float centerAlpha,
+	const in vec3 geometricNormalView,
+	const in vec3 sunDirectionView
+) {
+	float coverage = smoothstep(0.10, 0.30, centerAlpha);
+	float facing = dot(normalize(geometricNormalView), normalize(sunDirectionView));
+	float wrapped = Saturate((facing + FOXY_LEAF_SOFT_LIGHT_WRAP_ACTIVE) /
+		(1.0 + FOXY_LEAF_SOFT_LIGHT_WRAP_ACTIVE));
+	float faceResponse = mix(0.58, 1.0, smoothstep(0.02, 0.62, wrapped));
+	return coverage * faceResponse;
 }
 
 #endif

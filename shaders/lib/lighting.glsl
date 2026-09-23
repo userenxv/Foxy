@@ -3,6 +3,8 @@
 
 #include "/lib/settings.glsl"
 #include "/lib/math.glsl"
+#include "/lib/seasons.glsl"
+#include "/lib/weather.glsl"
 
 #if !defined(FOXY_EXTERNAL_PIPELINE_BINDINGS)
 uniform int moonPhase;
@@ -148,14 +150,24 @@ vec3 AtmosphereSolarTransmittance(const in float sunAltitude, const in float rai
 	return AtmosphereCelestialTransmittance(sunAltitude, rainStrength);
 }
 
-float CloudWeatherMapDirectLightVisibility(const in float rainStrength) {
-
+// How much of the direct sunlight survives rain.  This is a global, shape-free
+// scale: it only says "the sky is overcast, so there is less sun to go around".
+// Where that sunlight actually lands is not decided here - cloud shadows do
+// that per pixel, on the terrain they cover.
+//
+// It replaces an earlier curve that crushed direct light to 2.5% at full rain.
+// That put the sun out entirely, so rain took the god rays and any glimpse of
+// the sun with it and the ground could only get darker.  Keeping a floor
+// instead means a break in the clouds still delivers real sunlight through the
+// overcast, which is the sunshower look: the reduced global level sells the
+// weather, the cloud shadow decides whether this patch of ground sees it.
+float RainDirectLightScale(const in float rainStrength) {
 	float storm = smoothstep(0.0, 1.0, Saturate(rainStrength));
-	return mix(1.0, 0.025, storm);
+	return mix(1.0, FOXY_RAIN_DIRECT_LIGHT_FLOOR, storm);
 }
 
 vec3 SunColor(const in float sunAltitude, const in float rainStrength) {
-	float day = smoothstep(-0.08, 0.16, sunAltitude);
+	float day = mix(1.0, smoothstep(-0.08, 0.16, sunAltitude), 0.25);
 	vec3 transmittance = AtmosphereSolarTransmittance(sunAltitude, rainStrength);
 	vec3 solar = vec3(1.051, 0.985, 0.940) * transmittance;
 	float solarLuma = max(Luma(solar), 0.006);
@@ -169,8 +181,12 @@ vec3 SunColor(const in float sunAltitude, const in float rainStrength) {
 	chroma = pow(max(chroma, vec3(0.0)), vec3(0.92));
 #endif
 	chroma /= max(Luma(chroma), 0.05);
-	float energy = day * FOXY_SUN_INTENSITY * 2.18 * solarEnergy * PresentationSunScale(sunAltitude);
-	return chroma * energy * CloudWeatherMapDirectLightVisibility(rainStrength);
+	#if FOXY_BLACKHOLE_SUN == 1
+		chroma *= ColorTemperatureTint(FOXY_BLACKHOLE_SUN_TEMP);
+		chroma /= max(Luma(chroma), 0.05);
+	#endif
+	float energy = day * FOXY_SUN_INTENSITY * 2.18 * solarEnergy * PresentationSunScale(sunAltitude) * SeasonSunIlluminance() * WeatherSunScale();
+	return chroma * energy * RainDirectLightScale(rainStrength);
 }
 
 float MoonPhaseIlluminance() {
@@ -193,9 +209,13 @@ vec3 MoonColor(const in float moonAltitude, const in float rainStrength) {
 	vec3 chroma = transmittedMoon / max(Luma(transmittedMoon), 0.025);
 	chroma = pow(max(chroma, vec3(0.0)), vec3(0.78));
 	chroma /= max(Luma(chroma), 0.05);
+	#if FOXY_BLACKHOLE_MOON == 1
+		chroma *= ColorTemperatureTint(FOXY_BLACKHOLE_MOON_TEMP);
+		chroma /= max(Luma(chroma), 0.05);
+	#endif
 	float altitudeEnergy = mix(0.38, 1.0, smoothstep(0.012, 0.26, moonAltitude));
 	float energy = visibility * altitudeEnergy * MoonPhaseIlluminance() * FOXY_MOON_INTENSITY * 1.45;
-	return chroma * energy * CloudWeatherMapDirectLightVisibility(rainStrength);
+	return chroma * energy * RainDirectLightScale(rainStrength);
 }
 
 vec3 MoonAmbientColor(const in float moonAltitude, const in float rainStrength) {
@@ -279,6 +299,9 @@ vec3 ApplyPurkinjeVision(
 	const in float skyLight,
 	const in float eyeSkyLight
 ) {
+	#if FOXY_PURKINJE_ENABLED == 0
+		return color;
+	#else
 	float night = 1.0 - smoothstep(-0.105, 0.015, sunAltitude);
 	if (night <= 1.0e-6 || FOXY_PURKINJE_SHIFT <= 0.0) {
 		return color;
@@ -300,11 +323,47 @@ vec3 ApplyPurkinjeVision(
 	vec3 coolResponse = reducedChroma * vec3(0.82, 0.96, 1.10);
 	coolResponse *= targetLuminance / max(Luma(coolResponse), 1.0e-6);
 	return max(mix(color, coolResponse, amount), vec3(0.0));
+	#endif
 }
 
 vec3 TorchColor(const in float blockLight) {
 	float b = blockLight * blockLight;
 	return vec3(1.0, 0.52, 0.22) * b * 1.35;
+}
+
+vec3 HeldItemLightColor(const in int itemId, const in float blockLight) {
+	vec3 color = TorchColor(blockLight);
+	float intensity = blockLight * blockLight * 1.35;
+	if (itemId == 10002) {
+		color = vec3(0.22, 0.84, 1.18) * intensity;
+	} else if (itemId == 10003) {
+		color = vec3(1.18, 0.11, 0.035) * intensity;
+	} else if (itemId == 10004) {
+		color = vec3(0.48, 0.94, 1.12) * intensity;
+	} else if (itemId == 10005) {
+		color = vec3(0.76, 0.66, 1.18) * intensity;
+	} else if (itemId == 10006) {
+		color = vec3(1.20, 0.88, 0.28) * intensity;
+	} else if (itemId == 10007) {
+		color = vec3(0.48, 1.10, 0.54) * intensity;
+	} else if (itemId == 10008) {
+		color = vec3(1.16, 0.52, 0.90) * intensity;
+	} else if (itemId == 10009) {
+		color = vec3(1.22, 0.24, 0.035) * intensity;
+	} else if (itemId == 10010) {
+		color = vec3(0.34, 0.48, 1.16) * intensity;
+	} else if (itemId == 10011) {
+		color = vec3(0.12, 0.96, 0.84) * intensity;
+	} else if (itemId == 10012) {
+		color = vec3(0.74, 0.38, 1.16) * intensity;
+	} else if (itemId == 10013) {
+		color = vec3(0.78, 1.10, 0.30) * intensity;
+	} else if (itemId == 10014) {
+		color = vec3(0.48, 0.16, 1.02) * intensity;
+	} else if (itemId == 10015) {
+		color = vec3(1.0) * intensity;
+	}
+	return color;
 }
 
 vec3 FogColorFromClearSunColor(const in float sunAltitude, const in float rainStrength, const in vec3 clearSunColor) {

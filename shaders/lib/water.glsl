@@ -48,27 +48,11 @@ float WaterSnellWindowTransmission(const in float NoV) {
 	return smoothstep(criticalCosine - 0.012, criticalCosine + 0.012, Saturate(NoV));
 }
 
-float WaterGgxSunLobe(
-	const in float NoH,
-	const in float NoV,
-	const in float NoL,
-	const in float slope,
-	const in float fresnel
-) {
-	float alpha = max(slope, 0.004);
-	float alphaSquared = alpha * alpha;
-	float distributionDenominator = NoH * NoH * (alphaSquared - 1.0) + 1.0;
-	float distribution = alphaSquared / max(PI * distributionDenominator * distributionDenominator, 1.0e-6);
-	float geometryK = alpha * 0.5;
-	float visibilityV = NoV / max(NoV * (1.0 - geometryK) + geometryK, 1.0e-5);
-	float visibilityL = NoL / max(NoL * (1.0 - geometryK) + geometryK, 1.0e-5);
-	return fresnel * distribution * visibilityV * visibilityL / max(4.0 * NoV, 0.08);
-}
-
 vec3 WaterSunGlint(
 	const in vec3 normalView,
 	const in vec3 viewDir,
 	const in vec3 sunView,
+	const in float geometricNoL,
 	const in vec3 sunLightColor,
 	const in float sunShadow,
 	const in float skyLight,
@@ -79,6 +63,9 @@ vec3 WaterSunGlint(
 	const in vec3 worldPos,
 	const in float frameTimeCounter
 ) {
+	#if FOXY_BLACKHOLE_SUN == 1
+		return vec3(0.0);
+	#endif
 	float NoV = max(dot(normalView, viewDir), 0.0);
 	float NoL = max(dot(normalView, sunView), 0.0);
 	float directVisibility = sunShadow * skyLight * solarVisibility;
@@ -92,21 +79,29 @@ vec3 WaterSunGlint(
 		return vec3(0.0);
 	}
 	vec3 halfVector = halfVectorUnnormalized * inversesqrt(halfLengthSquared);
-	float NoH = max(dot(normalView, halfVector), 0.0);
 	float VoH = max(dot(viewDir, halfVector), 0.0);
 	float oneMinusVoH = 1.0 - VoH;
 	float oneMinusVoH2 = oneMinusVoH * oneMinusVoH;
 	float fresnel = 0.020 + 0.980 * oneMinusVoH2 * oneMinusVoH2 * oneMinusVoH;
 	float aa = Saturate(normalAaReduction);
 
-	float angularFloor = max(tan(max(FOXY_PBR_LIGHT_ANGULAR_RADIUS, 0.0)), 0.002);
-	float slope = max(mix(0.008, 0.038, aa), angularFloor);
-	float lobe = min(WaterGgxSunLobe(NoH, NoV, NoL, slope, fresnel), 28.0);
-	float alignedLobe = max(lobe - mix(0.26, 0.46, aa), 0.0);
-	float crest = mix(0.80, 1.20, Saturate(waveHeight * 1.65 + 0.50));
-	float sparkle = min(alignedLobe * 16.0 * NoL * crest, 192.0);
+	float alpha = max(mix(0.008, 0.038, aa), 0.004);
+	vec2 requiredSlope = halfVector.xz / max(halfVector.y, 4.0e-2);
+	vec2 facetSlope = normalView.xz / max(normalView.y, 4.0e-2);
+	vec2 residual = requiredSlope - facetSlope;
+	vec2 alongAxis = normalize(vec2(sunView.x, sunView.z) + vec2(1.0e-5, 0.0));
+	vec2 acrossAxis = vec2(-alongAxis.y, alongAxis.x);
+	float alongResidual = dot(residual, alongAxis);
+	float acrossResidual = dot(residual, acrossAxis);
+	float sigmaAcross = alpha;
+	float sigmaAlong = alpha * 3.0;
+	float glint = exp(-0.5 * (alongResidual * alongResidual / (sigmaAlong * sigmaAlong)
+		+ acrossResidual * acrossResidual / (sigmaAcross * sigmaAcross)));
+	glint = glint * glint / (glint + 0.08);
+	glint *= max(fresnel, 0.04) * 65.0;
 	float weather = mix(1.0, 0.42, Saturate(rainStrength));
-	return max(sunLightColor, vec3(0.0)) * sparkle * directVisibility * weather * FOXY_WATER_SUN_GLINT;
+	vec3 glintColor = mix(sunLightColor, vec3(Luma(sunLightColor)), 0.7);
+	return max(glintColor, vec3(0.0)) * glint * directVisibility * weather * FOXY_WATER_SUN_GLINT;
 }
 
 vec2 WaterRotate(const in vec2 p, const in float a) {

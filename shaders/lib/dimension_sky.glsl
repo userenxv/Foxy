@@ -2,6 +2,8 @@
 #define FOXY_DIMENSION_SKY_GLSL
 
 #include "/lib/math.glsl"
+#include "/lib/lighting.glsl"
+#include "/lib/end_key_light.glsl"
 
 float DimensionHash13(const in vec3 p) {
 	vec3 q = fract(p * 0.1031);
@@ -17,8 +19,15 @@ vec3 NetherEnvironment(const in vec3 worldDir) {
 }
 
 vec3 EndSunWorldDirection() {
+	return EndKeyLightDirection(frameTimeCounter);
+}
 
-	return vec3(0.35355339, 0.86602540, 0.35355339);
+vec3 EndLightTint() {
+	return ColorTemperatureTint(EndKeyLightTemperature(frameTimeCounter));
+}
+
+vec3 EndLightAligned(const in vec3 color) {
+	return EndLightTint() * dot(max(color, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
 }
 
 vec3 EndEnvironment(const in vec3 direction, const in float time) {
@@ -32,6 +41,7 @@ vec3 EndEnvironment(const in vec3 direction, const in float time) {
 	float zenithDisc = smoothstep(0.99915, 0.99972, sunAlignment);
 	sky += vec3(0.060, 0.090, 0.150) * zenithHalo * 0.34;
 	sky += vec3(0.62, 0.72, 1.00) * zenithDisc;
+	sky = EndLightAligned(sky);
 
 	vec3 starCell = floor(worldDir * 430.0);
 	float starSeed = DimensionHash13(starCell);
@@ -48,7 +58,17 @@ vec3 NetherEnvironmentFluence() {
 }
 
 vec3 EndEnvironmentFluence() {
-	return vec3(0.024, 0.020, 0.050);
+	return EndLightAligned(vec3(0.024, 0.020, 0.050)) *
+		EndKeyLightFlux(frameTimeCounter) * EndKeySkyCoverage(frameTimeCounter);
+}
+
+vec3 NetherAmbientColor() {
+	// Vanilla's Nether ambient_light is 0.1, independent of local light levels.
+	return (vec3(0.1) + NetherEnvironmentFluence() * 4.0) * FOXY_AMBIENT_INTENSITY;
+}
+
+vec3 EndAmbientColor() {
+	return EndEnvironmentFluence() * 0.75 * FOXY_AMBIENT_INTENSITY;
 }
 
 vec3 NetherDirectEnvironment() {
@@ -56,7 +76,7 @@ vec3 NetherDirectEnvironment() {
 }
 
 vec3 EndDirectEnvironment() {
-	return vec3(0.042, 0.026, 0.068);
+	return EndLightAligned(vec3(0.126, 0.078, 0.204)) * EndKeyLightFlux(frameTimeCounter);
 }
 
 #endif

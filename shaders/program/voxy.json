@@ -27,9 +27,8 @@
         "frameTimeCounter",
         "frameCounter",
         "moonPhase",
-        "light_dir",
-        "sun_dir",
-        "moon_dir",
+        "sunPosition",
+        "moonPosition",
         "view_pixel_size",
         "taa_offset"
     ],

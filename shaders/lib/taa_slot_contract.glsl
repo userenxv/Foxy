@@ -63,8 +63,6 @@ float ndcDepth = rawDepth * 2.0 - 1.0;
 
 TaaSlotSurface TaaSlotLoadSurface(const in vec2 rasterUv) {
 	TaaSlotSurface surface;
-	surface.rasterUv = rasterUv;
-	surface.viewUv = rasterUv - temporalJitter * 0.5;
 	ivec2 depthTextureSize = max(textureSize(depthtex0, 0), ivec2(1));
 	ivec2 renderSize = min(max(ivec2(SrRenderSize()), ivec2(1)), depthTextureSize);
 	ivec2 depthTexel = clamp(
@@ -73,6 +71,9 @@ TaaSlotSurface TaaSlotLoadSurface(const in vec2 rasterUv) {
 		renderSize - ivec2(1)
 	);
 	vec2 resourceUv = (vec2(depthTexel) + 0.5) / vec2(depthTextureSize);
+	// Reconstruct the sampled depth texel, including its actual raster center.
+	surface.rasterUv = (vec2(depthTexel) + 0.5) / vec2(renderSize);
+	surface.viewUv = surface.rasterUv - temporalJitter * 0.5;
 
 surface.mainRawDepth = texelFetch(depthtex0, depthTexel, 0).r;
 	surface.firstPerson = TaaSlotIsFirstPersonDepth(surface.mainRawDepth);
@@ -115,8 +116,7 @@ void TaaSlotClosestDepth(
 	const in vec2 centerUv,
 	out TaaSlotSurface centerSurface,
 	out TaaSlotSurface closestSurface,
-	out float closestTap,
-	out float centerMetric
+	out float closestTap
 ) {
 	ivec2 depthTextureSize = max(textureSize(depthtex0, 0), ivec2(1));
 	ivec2 renderSize = min(max(ivec2(SrRenderSize()), ivec2(1)), depthTextureSize);
@@ -130,7 +130,6 @@ void TaaSlotClosestDepth(
 
 centerSurface = TaaSlotLoadSurface(centerUv);
 	closestSurface = centerSurface;
-	centerMetric = TaaSlotDepthMetric(centerSurface.viewDistance, centerSurface.valid);
 	closestTap = 0.0;
 	float closestRawDepth = centerSurface.mainRawDepth;
 	vec2 closestUv = centerUv;
@@ -165,30 +164,31 @@ vec4 TaaSlotPreviousSkyClip(const in vec3 currentViewDirection) {
 	return gbufferPreviousProjection * vec4(previousViewDirection, 0.0);
 }
 
-TaaSlotReprojection TaaSlotBuildReprojection(const in vec2 centerUv) {
+TaaSlotReprojection TaaSlotBuildReprojection(
+	const in vec2 centerUv,
+	const in vec2 outputUv
+) {
 	TaaSlotReprojection result;
 	TaaSlotSurface centerSurface;
 	TaaSlotSurface closestSurface;
-	TaaSlotClosestDepth(centerUv, centerSurface, closestSurface, result.closestTap, result.currentMetric);
+	TaaSlotClosestDepth(centerUv, centerSurface, closestSurface, result.closestTap);
 
 result.firstPerson = centerSurface.firstPerson;
 	result.water = centerSurface.water;
 
-	#if FOXY_TEMPORAL_JITTER_ACTIVE == 1
-		vec2 previousJitterUv = previousTemporalJitter * 0.5;
-	#else
-		vec2 previousJitterUv = vec2(0.0);
-	#endif
 	vec4 previousClip;
 
 TaaSlotSurface motionSurface = closestSurface;
 	if (abs(closestSurface.firstPerson - centerSurface.firstPerson) > 0.5) {
 		motionSurface = centerSurface;
 	}
+	// History metadata describes the same dilated surface as the motion vector.
+	result.currentMetric = TaaSlotDepthMetric(motionSurface.viewDistance, motionSurface.valid);
 
 	if (motionSurface.valid < 0.5) {
 		vec3 viewDirection = normalize(TaaSlotViewPosition(motionSurface.viewUv, 1.0));
 		previousClip = TaaSlotPreviousSkyClip(viewDirection);
+		result.expectedPreviousMetric = 1.0;
 	} else {
 		vec3 viewPosition = EndpointViewPosition(
 			motionSurface.endpoint,
@@ -197,6 +197,7 @@ TaaSlotSurface motionSurface = closestSurface;
 			gbufferProjectionInverse
 		);
 		vec4 previousView = TaaSlotPreviousViewPosition(viewPosition, motionSurface.firstPerson);
+		result.expectedPreviousMetric = TaaSlotDepthMetric(max(-previousView.z, 0.0), 1.0);
 		previousClip = EndpointPreviousClip(
 			motionSurface.endpoint,
 			previousView,
@@ -204,24 +205,12 @@ TaaSlotSurface motionSurface = closestSurface;
 		);
 	}
 
-if (centerSurface.valid < 0.5) {
-		result.expectedPreviousMetric = 1.0;
-	} else {
-		vec3 centerViewPosition = EndpointViewPosition(
-			centerSurface.endpoint,
-			centerSurface.viewUv,
-			centerSurface.projectionRawDepth,
-			gbufferProjectionInverse
-		);
-		vec4 centerPreviousView = TaaSlotPreviousViewPosition(centerViewPosition, centerSurface.firstPerson);
-		result.expectedPreviousMetric = TaaSlotDepthMetric(max(-centerPreviousView.z, 0.0), 1.0);
-	}
-
 	result.valid = step(1.0e-5, previousClip.w) * step(1.5, float(frameCounter));
 	vec3 previousNdc = previousClip.xyz / TaaSlotSafeDivisor(previousClip.w);
-	vec2 previousClosestUv = previousNdc.xy * 0.5 + 0.5 + previousJitterUv;
-	result.motionUv = motionSurface.rasterUv - previousClosestUv;
-	result.previousUv = centerUv - result.motionUv;
+	vec2 previousSurfaceUv = previousNdc.xy * 0.5 + 0.5;
+	// colortex12 is written on the unjittered output grid, not the raster grid.
+	result.motionUv = motionSurface.viewUv - previousSurfaceUv;
+	result.previousUv = outputUv - result.motionUv;
 
 	vec2 edge = 0.5 / vec2(max(textureSize(colortex12, 0), ivec2(1)));
 	result.valid *= step(edge.x, result.previousUv.x) * step(result.previousUv.x, 1.0 - edge.x);

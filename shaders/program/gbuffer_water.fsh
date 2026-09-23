@@ -37,7 +37,6 @@ uniform mat4 gbufferModelViewInverse;
 uniform float rainStrength;
 uniform float viewWidth;
 uniform float viewHeight;
-uniform float frameTimeCounter;
 uniform int isEyeInWater;
 uniform int frameCounter;
 uniform ivec2 eyeBrightnessSmooth;
@@ -52,6 +51,7 @@ varying vec4 vertexShadowClip;
 varying float waterWaveHeight;
 varying float isWater;
 varying float isIce;
+varying float isIceSolid;
 varying float vertexMaterialId;
 varying float vertexEmissionLevel;
 varying vec3 vertexSunLightColor;
@@ -134,7 +134,8 @@ bool WaterDerivativeTangentFrame(
 	vec2 uvDx = dFdx(texcoord);
 	vec2 uvDy = dFdy(texcoord);
 	float determinant = uvDx.x * uvDy.y - uvDx.y * uvDy.x;
-	if (abs(determinant) <= 1.0e-8) return false;
+	float uvJacobianScale = sqrt(max(dot(uvDx, uvDx) * dot(uvDy, uvDy), 1.0e-20));
+	if (abs(determinant) <= uvJacobianScale * 1.0e-4) return false;
 
 	vec3 frameNormal = PbrSafeNormal(normalView, vec3(0.0, 0.0, 1.0));
 	vec3 positionDx = dFdx(surfaceViewPosition);
@@ -182,7 +183,7 @@ void main() {
 	if (!isGlass && texel.a <= 0.001) {
 		discard;
 	}
-	if (isWater < 0.5) {
+	if (isWater < 0.5 && isIceSolid < 0.5) {
 		vec3 baseColor = SrgbToLinear(texel.rgb);
 		float glassTextureCoverage = isGlass
 			? smoothstep(0.25, 0.70, Saturate(texel.a))
@@ -299,9 +300,15 @@ void main() {
 		);
 		wavedNormalView = normalize(mat3(gbufferModelView) * wavedNormalWorld);
 	}
-	vec3 normalView = wavedNormalView;
+	float iceSurface = Saturate(isIceSolid) * step(0.5, baseNormalPlayer.y);
+	vec3 iceNormalView = normalize(surfaceNormalView);
+	if (iceSurface > 0.5) {
+		baseWater = mix(baseWater, SrgbToLinear(texel.rgb), iceSurface * 0.55);
+	}
+	vec3 opticalNormalView = normalize(mix(wavedNormalView, iceNormalView, iceSurface));
+	vec3 normalView = opticalNormalView;
 	if (isEyeInWater == 1) {
-		normalView = normalize(mix(baseNormalView, wavedNormalView, 0.42));
+		normalView = normalize(mix(baseNormalView, opticalNormalView, 0.42));
 	}
 	float surfaceViewDistance = length(surfaceViewPosition);
 	vec3 incidentView = surfaceViewPosition / max(surfaceViewDistance, 1.0e-6);
@@ -341,7 +348,8 @@ void main() {
 	}
 	float NoV = max(dot(normalView, viewDir), 0.0);
 	vec3 lightmapColor = SrgbToLinear(texture2D(lightmap, ditheredLmcoord).rgb);
-	float activeCelestialShadow = mix(moonShadow, sunShadow, solarVisibility);
+	float ambientShadowSource = max(solarVisibility, TwilightFactor(sunAltitude));
+	float activeCelestialShadow = mix(moonShadow, sunShadow, ambientShadowSource);
 	float ambientShadowed = mix(1.0 - FOXY_SHADOW_AMBIENT_DARKEN * 0.82, 1.0, activeCelestialShadow);
 	float ambientShadowInfluence = mix(0.10, 1.0, smoothstep(-0.04, 0.16, sunAltitude));
 	float ambientOcclusionFromCelestial = mix(1.0, ambientShadowed, ambientShadowInfluence);
@@ -360,6 +368,8 @@ void main() {
 	float viewDepth = max(-surfaceViewPosition.z, 0.0);
 	float waterFog = Saturate(FOXY_WATER_FOG);
 	float waterDensity = FOXY_WATER_DENSITY;
+	waterFog *= mix(1.0, 0.35, iceSurface);
+	waterDensity *= mix(1.0, 0.45, iceSurface);
 	float surfaceDistance = max(viewDepth * 0.040, 0.0);
 	float depthFog = 1.0 - exp(-surfaceDistance * (0.20 + waterFog * 0.30) * waterDensity);
 	float grazingFog = pow(1.0 - NoV, 2.0) * 0.42;
@@ -386,12 +396,16 @@ void main() {
 	float alpha = mix(0.14, 0.52, alphaShape);
 	alpha = mix(alpha, 0.985, grazingOpacity);
 	alpha = max(alpha, mix(0.12, 0.26, waterFog));
+	vec3 iceFilm = SrgbToLinear(texel.rgb) * environmentLight * 0.30;
+	color = mix(color, iceFilm, iceSurface);
+	alpha = mix(alpha, 0.20, iceSurface);
 	float waterSunGlintSignal = 0.0;
 	if (FOXY_WATER_SUN_GLINT > 0.001) {
 		vec3 sunGlint = WaterSunGlint(
 			normalView,
 			viewDir,
 			sunView,
+			max(vertexSunAltitude, 0.0),
 			sunLightColor,
 			sunShadow,
 			skyLight,
@@ -426,6 +440,10 @@ void main() {
 	);
 
 	gl_FragData[0] = vec4(0.0);
-	gl_FragData[1] = MaterialWaterPacket(wavedNormalView, waterNormalAaReduction, waterSunGlintSignal);
+	gl_FragData[1] = MaterialWaterPacket(
+		mix(wavedNormalView, iceNormalView, iceSurface),
+		waterNormalAaReduction * (1.0 - iceSurface),
+		waterSunGlintSignal
+	);
 	gl_FragData[2] = WaterSurfacePack(EncodeSceneColor(max(color, vec3(0.0))), alpha);
 }

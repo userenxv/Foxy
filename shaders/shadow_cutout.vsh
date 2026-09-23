@@ -1,5 +1,7 @@
 #version 430 compatibility
 #include "/lib/settings.glsl"
+#include "/lib/sable.glsl"
+uniform mat4 gbufferModelView;
 #include "/lib/math.glsl"
 #include "/lib/shadow.glsl"
 #include "/lib/wind.glsl"
@@ -10,10 +12,10 @@ attribute vec2 mc_midTexCoord;
 uniform mat4 shadowModelViewInverse;
 uniform mat4 shadowModelView;
 uniform vec3 cameraPosition;
-uniform float frameTimeCounter;
 uniform float rainStrength;
 
 #if FOXY_VOXEL_ACTIVE == 1
+#define FOXY_VOXEL_SKIP_UNKNOWN_CUTOUT
 #define FOXY_VOXEL_BUFFER_WRITE
 #include "/lib/voxel/voxel_grid.glsl"
 	#if FOXY_MATERIAL_REFLECTIONS == 1 && FOXY_MATERIAL_REFLECTION_GLOBAL == 1 && FOXY_MATERIAL_REFLECTION_OFFSCREEN == 1
@@ -28,9 +30,19 @@ attribute vec4 at_midBlock;
 varying vec2 texcoord;
 varying vec4 surfaceColor;
 
+#if FOXY_RAY_MODE == FOXY_RAY_RSM
+varying vec3 surfaceShadowNormal;
+#endif
+
 void main() {
+	bool sableSubLevel = SableSubLevelDraw(gl_ModelViewMatrix, gbufferModelView, shadowModelView);
 	texcoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
 	surfaceColor = gl_Color;
+	#if FOXY_RAY_MODE == FOXY_RAY_RSM
+		surfaceShadowNormal = normalize(
+			mat3(shadowModelViewInverse) * gl_NormalMatrix * gl_Normal
+		);
+	#endif
 	vec4 baseShadowViewPos = gl_ModelViewMatrix * gl_Vertex;
 	vec3 playerPos = (shadowModelViewInverse * baseShadowViewPos).xyz;
 	vec2 spriteCenterUv = (gl_TextureMatrix[0] * vec4(mc_midTexCoord, 0.0, 1.0)).xy;
@@ -60,7 +72,7 @@ void main() {
 	uint storedMaterialId = VoxelMaterialForGeometry(materialId, scenePos, cameraPosition, sceneNormal);
 	#if FOXY_MATERIAL_REFLECTIONS == 1 && FOXY_MATERIAL_REFLECTION_GLOBAL == 1 && FOXY_MATERIAL_REFLECTION_OFFSCREEN == 1
 		if (storedMaterialId >= FOXY_VOXEL_CUSTOM_MATERIAL_BASE) {
-			VoxelMaterialColorStore(
+			if (!sableSubLevel) VoxelMaterialColorStore(
 				ivec3(floor(VoxelGridSceneToGrid(scenePos, cameraPosition))),
 				storedMaterialId,
 				VoxelEncodeAxisNormal(sceneNormal),
@@ -74,8 +86,8 @@ void main() {
 		cameraPosition,
 		materialId,
 		sceneNormal,
-		at_midBlock.w,
-		lightmapUv
+		BlockEmissionLevel(mc_Entity.x, at_midBlock),
+		lightmapUv, sableSubLevel
 	);
 #endif
 }

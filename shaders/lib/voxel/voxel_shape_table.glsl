@@ -357,4 +357,29 @@ const uint FOXY_VOXEL_SHAPE_BOXES[2112] = uint[2112](
 	0x150391a6u, 0x090581a8u, 0x0f0501a9u, 0x210529a9u, 0x190595aau, 0x210631abu, 0x150815acu, 0x210801adu
 );
 
+uint VoxelShapeBuildExtent(const in uint meta) {
+	uint offset = meta & 0xffffu;
+	uint count = meta >> 16u;
+	if (count == 0u) {
+		return 16u << 5u | 16u << 15u | 16u << 25u;
+	}
+	uint minimumX = 31u;
+	uint minimumY = 31u;
+	uint minimumZ = 31u;
+	uint maximumX = 0u;
+	uint maximumY = 0u;
+	uint maximumZ = 0u;
+	for (uint item = 0u; item < count; ++item) {
+		uint packedBox = FOXY_VOXEL_SHAPE_BOXES[offset + item];
+		minimumX = min(minimumX, packedBox & 31u);
+		minimumY = min(minimumY, (packedBox >> 5u) & 31u);
+		minimumZ = min(minimumZ, (packedBox >> 10u) & 31u);
+		maximumX = max(maximumX, (packedBox >> 15u) & 31u);
+		maximumY = max(maximumY, (packedBox >> 20u) & 31u);
+		maximumZ = max(maximumZ, (packedBox >> 25u) & 31u);
+	}
+	return minimumX | (maximumX << 5u) | (minimumY << 10u) | (maximumY << 15u) |
+		(minimumZ << 20u) | (maximumZ << 25u);
+}
+
 #endif

@@ -4,6 +4,10 @@
 #include "/lib/celestial.glsl"
 #include "/lib/clouds.glsl"
 #include "/lib/dimension_sky.glsl"
+#include "/lib/weather_altitude.glsl"
+#if defined(FOXY_DIM_END) && FOXY_BLACKHOLE_SKY == 1
+#include "/lib/blackhole.glsl"
+#endif
 
 uniform mat4 gbufferModelViewInverse;
 uniform sampler2D colortex7;
@@ -13,12 +17,16 @@ uniform vec3 shadowLightPosition;
 uniform vec3 upPosition;
 uniform vec3 cameraPosition;
 uniform float rainStrength;
-uniform float frameTimeCounter;
 uniform int frameCounter;
 
 varying vec2 texcoord;
 
 void main() {
+	// Above the cloud layer the weather is behind the camera, so the sky is baked
+	// back toward its clear-weather state.  The LUT only refreshes a quarter of its
+	// texels per frame, which is what turns this into a gradual change.
+	float effectiveRain = rainStrength * WeatherAltitudeFade(cameraPosition.y);
+
 	#if defined(FOXY_DIM_NETHER) || defined(FOXY_DIM_END)
 		vec2 dimensionUv = clamp(texcoord, vec2(0.0), vec2(1.0));
 		vec3 dimensionSky;
@@ -37,6 +45,12 @@ void main() {
 			vec3 dimensionWorldDir = SkyViewLutDirection(dimensionUv);
 			#if defined(FOXY_DIM_NETHER)
 				dimensionSky = NetherEnvironment(dimensionWorldDir);
+			#elif FOXY_BLACKHOLE_SKY == 1
+				dimensionSky = BlackHoleBackground(
+					dimensionWorldDir,
+					frameTimeCounter,
+					cameraPosition
+				) * FOXY_BLACKHOLE_REFLECTION_BRIGHTNESS;
 			#else
 				dimensionSky = EndEnvironment(dimensionWorldDir, frameTimeCounter);
 			#endif
@@ -76,8 +90,8 @@ vec3 stableSun;
 			);
 			float useSunShadow = step(shadowMatchesMoon, shadowMatchesSun);
 			sky = mix(
-				MoonColor(moonAltitude, rainStrength),
-				SunColor(sunAltitude, rainStrength),
+				MoonColor(moonAltitude, effectiveRain),
+				SunColor(sunAltitude, effectiveRain),
 				useSunShadow
 			);
 		}
@@ -97,14 +111,14 @@ vec3 stableSun;
 			StableSunMoonViewDirs(sunPosition, moonPosition, upPosition, stableSun, stableMoon);
 			vec3 sunWorld = TiltCelestialWorld(ViewToWorldDir(gbufferModelViewInverse, stableSun));
 			vec3 moonWorld = TiltCelestialWorld(ViewToWorldDir(gbufferModelViewInverse, stableMoon));
-			sky = AtmosphereScattering(worldDir, sunWorld, moonWorld, vec3(0.0, 1.0, 0.0), sunWorld.y, rainStrength);
+			sky = AtmosphereScattering(worldDir, sunWorld, moonWorld, vec3(0.0, 1.0, 0.0), sunWorld.y, effectiveRain);
 		}
 	}
 	vec3 shadowView = normalize(shadowLightPosition);
 	vec3 shadowWorld = TiltCelestialWorld(ViewToWorldDir(gbufferModelViewInverse, shadowView));
 	vec2 cacheCenter = CloudShadowCacheCenter(cameraPosition, shadowWorld);
 	vec2 planePosition = cacheCenter + (uv - vec2(0.5)) * CLOUD_SHADOW_CACHE_EXTENT;
-	float cloudShadow = CloudShadowVisibilityAtPlane(planePosition, shadowWorld.y, frameTimeCounter, rainStrength);
+	float cloudShadow = CloudShadowVisibilityAtPlane(planePosition, shadowWorld.y, frameTimeCounter + WeatherWindDrift(FOXY_WIND_CLOUDS), rainStrength);
 	gl_FragData[0] = vec4(EncodeSkyLutColor(sky), cloudShadow);
 	#endif
 }

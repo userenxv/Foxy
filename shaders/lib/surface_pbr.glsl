@@ -90,14 +90,55 @@ bool PbrIdInRange(const in float id, const in float firstId, const in float last
 	return id >= firstId - 0.5 && id <= lastId + 0.5;
 }
 
+float PbrBuiltinMaterialNoise(const in vec2 uv) {
+	vec2 cell = floor(uv * 96.0);
+	return fract(sin(dot(cell, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+void PbrApplyBuiltinSurfaceDetail(inout PbrMaterial material, const in float materialId, const in vec3 albedo, const in vec3 normalView, const in vec2 materialUv) {
+	float pixelNoise = PbrBuiltinMaterialNoise(materialUv);
+	float luma = Saturate(Luma(albedo));
+	float faceUp = Saturate(normalView.y * 0.5 + 0.5);
+	if (PbrIdInRange(materialId, 10110.0, 10119.0)) {
+		float grain = smoothstep(0.22, 0.78, fract(materialUv.x * 37.0 + pixelNoise * 0.18));
+		material.roughness = PbrAlphaFromPerceptualRoughness(mix(0.52, 0.70, grain));
+		material.f0 = vec3(0.045 + luma * 0.018);
+		material.specularWeight = 0.78;
+	} else if (PbrIdInRange(materialId, 10120.0, 10129.0)) {
+		material.roughness = PbrAlphaFromPerceptualRoughness(0.84 - luma * 0.08 + pixelNoise * 0.025);
+		material.f0 = vec3(0.030 + luma * 0.010);
+		material.specularWeight = 0.56;
+	} else if (PbrIdInRange(materialId, 10130.0, 10139.0)) {
+		float topResponse = smoothstep(0.55, 0.92, faceUp);
+		material.roughness = PbrAlphaFromPerceptualRoughness(mix(0.86, 0.74, topResponse) + pixelNoise * 0.018);
+		material.f0 = vec3(0.026 + topResponse * 0.010);
+		material.specularWeight = mix(0.32, 0.50, topResponse);
+		material.porosity = mix(0.76, 0.48, topResponse);
+	}
+	if (PbrIdInRange(materialId, 10100.0, 10100.0) || PbrIdInRange(materialId, 12000.0, 12000.0)) {
+		material.roughness = PbrAlphaFromPerceptualRoughness(0.74);
+		material.f0 = vec3(0.046);
+		material.specularWeight = 0.88;
+		material.sssAmount = 0.90;
+	} else if (materialId > 10130.5 && materialId < 10131.5) {
+		float top = smoothstep(0.62, 0.92, faceUp);
+		material.roughness = PbrAlphaFromPerceptualRoughness(mix(0.82, 0.76, top));
+		material.f0 = vec3(0.040 + top * 0.006);
+		material.specularWeight = mix(0.42, 0.56, top);
+	}
+}
+
 void PbrApplyFallbackMaterial(inout PbrMaterial material, const in float materialId) {
 	if (PbrIdInRange(materialId, 10079.0, 10082.0)) {
 		material.roughness = PbrAlphaFromPerceptualRoughness(0.22);
 		material.f0 = vec3(0.035);
 		material.specularWeight = 1.0;
-	} else if (PbrIdInRange(materialId, 10100.0, 10103.0)) {
+	} else if (
+		PbrIdInRange(materialId, 10100.0, 10103.0) ||
+		PbrIdInRange(materialId, 12000.0, 12000.0)
+	) {
 		material.f0 = vec3(max(FOXY_PBR_FALLBACK_F0, 0.002));
-		if (materialId < 10100.5) {
+		if (materialId < 10100.5 || materialId > 11999.5) {
 			material.roughness = PbrFoliageRoughness(material.albedo);
 			material.sssAmount = 1.00;
 			material.sheenAmount = 0.50;
@@ -401,7 +442,7 @@ vec3 PbrThinSss(
 ) {
 	#if FOXY_PBR_SSS == 1
 		float amount = Saturate(material.sssAmount);
-		float intensity = max(FOXY_PBR_SSS_INTENSITY, 0.0);
+		float intensity = max(FOXY_PBR_SSS_INTENSITY_ACTIVE, 0.0);
 		float lightEnergy = max(lightColor.r, max(lightColor.g, lightColor.b));
 		if (amount <= 1.0e-4 || intensity <= 1.0e-4 || lightVisibility <= 1.0e-4 || lightEnergy <= 0.0) {
 			return vec3(0.0);
@@ -422,7 +463,7 @@ vec3 PbrThinSss(
 		vec3 tint = PbrTransmissionTint(material.albedo);
 		vec3 response = tint * (thinSheetLobe * orientationGate * shapedAmount * intensity);
 
-		#if FOXY_PBR_SSS_SHEEN == 1
+		#if FOXY_PBR_SSS_SHEEN_ACTIVE == 1
 			float viewRim = 1.0 - abs(dot(normalView, viewDir));
 			viewRim *= viewRim;
 			float sheen = material.sheenAmount * intensity * viewRim * (0.20 + 0.80 * back4) * 0.38;
@@ -441,7 +482,7 @@ vec3 PbrAmbientSss(
 	const in float skyLight
 ) {
 	#if FOXY_PBR_SSS == 1
-		float amount = Saturate(material.sssAmount) * max(FOXY_PBR_SSS_INTENSITY, 0.0) * Saturate(skyLight);
+		float amount = Saturate(material.sssAmount) * max(FOXY_PBR_SSS_INTENSITY_ACTIVE, 0.0) * Saturate(skyLight);
 		return ambientLight * PbrTransmissionTint(material.albedo) * (amount * 0.11);
 	#else
 		return vec3(0.0);

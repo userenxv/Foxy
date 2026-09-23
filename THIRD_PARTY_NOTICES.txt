@@ -1,6 +1,6 @@
 Foxy Shader Third-Party Notices
 
-This shaderpack contains derived portions of the following MIT-licensed works:
+This shaderpack contains derived portions of the following MIT-licensed and Apache-2.0-licensed works:
 
 1. Hash without Sine
    Copyright (c) David Hoskins
@@ -16,6 +16,21 @@ This shaderpack contains derived portions of the following MIT-licensed works:
    Copyright (c) Benjamin Wrensch
    Source: https://iolite-engine.com/blog_posts/minimal_agx_implementation
    Used by: shaders/lib/math.glsl
+
+4. ACES 2.0 Core tonescale parameters and transform concepts
+   Copyright Contributors to the ACES Project
+   Source: https://github.com/aces-aswf/aces-core
+   License: Apache-2.0
+	Used by: shaders/lib/math.glsl (real-time ACES 2.0-compatible display path)
+	The tonescale constants are the ACES Core 2.0 presets for 100, 203 and
+	1000 nit display peaks. The AP1 primaries, D60 white point, and
+	Bradford-adapted Rec.709 conversion matrices are calculated from the same
+	ACES Core chromaticities and stored in GLSL column-major order. The compact
+	gamut guard is a realtime approximation; the full reference implementation
+	uses CAM16/JMh and generated hue-cusp tables, which are not practical in
+	this single fullscreen pass at the current performance budget.
+
+   Apache License text: https://www.apache.org/licenses/LICENSE-2.0
 
 MIT License
 

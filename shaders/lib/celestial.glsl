@@ -56,7 +56,8 @@ vec2 CelestialShadowSourceWeights(
 	float moonMatch = smoothstep(0.90, 0.995, dot(normalize(shadowLightDir), normalize(moonDir)));
 	float useSun = step(moonMatch, sunMatch);
 	float confidence = max(sunMatch, moonMatch);
-	return vec2(useSun, 1.0 - useSun) * confidence;
+	float faded = mix(0.25, 1.0, confidence);
+	return vec2(useSun, 1.0 - useSun) * faded;
 }
 
 #endif

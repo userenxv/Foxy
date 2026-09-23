@@ -490,12 +490,20 @@ void SsptAtrousTap(
 void main() {
 	ivec2 filterSize = SsptAtrousOutputSize();
 	ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-	if (any(greaterThanEqual(pixel, filterSize))) return;
+	bool pixelInside = all(lessThan(pixel, filterSize));
+	// A whole inactive workgroup may return uniformly. A partial edge group
+	// must keep every lane alive through its cooperative preload and barrier.
+	ivec2 groupBase = ivec2(gl_WorkGroupID.xy) * SSPT_FILTER_GROUP_SIZE;
+	if (any(greaterThanEqual(groupBase, filterSize))) return;
 
 	#if FOXY_VOXEL_GI_ACTIVE == 1 && FOXY_IRC_MODE == 1
 
+		if (!pixelInside) return;
 		SsptAtrousStore(pixel, SsptAtrousSource(pixel));
 		return;
+	#endif
+	#if FOXY_SSPT_ATROUS_SHARED == 0
+		if (!pixelInside) return;
 	#endif
 
 	ssptAtrousFilterSize = filterSize;
@@ -516,6 +524,7 @@ void main() {
 	#endif
 	#if FOXY_SSPT_ATROUS_SHARED == 1
 		SsptAtrousPreload(filterSize);
+		if (!pixelInside) return;
 	#endif
 
 	vec4 centerSignal;
@@ -620,13 +629,13 @@ void main() {
 	float startupUncertainty = 1.0 - Saturate(centerAge * 0.20);
 	float uncertainty = Saturate(relativeDeviation * 0.90 + startupUncertainty * 0.72);
 	#if FOXY_SSPT_ATROUS_PASS == 0
-		float passAmount = mix(0.65, 1.20, uncertainty);
+		float passAmount = mix(1.6250, 3.0000, uncertainty);
 	#elif FOXY_SSPT_ATROUS_PASS == 1
-		float passAmount = mix(0.50, 1.05, uncertainty);
+		float passAmount = mix(1.2500, 2.6250, uncertainty);
 	#else
-		float passAmount = mix(0.75, 1.00, uncertainty);
+		float passAmount = mix(1.8750, 2.5000, uncertainty);
 	#endif
-	float filterAmount = min(clamp(FOXY_SSPT_DENOISE_STRENGTH, 0.0, 2.0) * passAmount, 1.6);
+	float filterAmount = clamp(FOXY_SSPT_DENOISE_STRENGTH, 0.0, 3.0) * passAmount;
 
 	const float centerKernelWeight = SSPT_CENTER_WEIGHT;
 	vec3 radianceSum = max(centerSignal.rgb, vec3(0.0)) * centerKernelWeight;
